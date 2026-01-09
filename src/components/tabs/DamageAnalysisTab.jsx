@@ -3,6 +3,17 @@ import { calculateCombinedDamage, getHeatmapColor } from '../../utils/damageCalc
 import { TOUGHNESS_RANGE, SAVE_RANGE } from '../../utils/constants';
 import { AttackFlowDiagram, DamageDistribution } from '../visualization';
 
+// Safe number formatting
+const fmt = (val, decimals = 1) => {
+  const n = Number(val);
+  return isNaN(n) || !isFinite(n) ? '0' : n.toFixed(decimals);
+};
+
+const safeVal = (val) => {
+  const n = Number(val);
+  return isNaN(n) || !isFinite(n) ? 0 : n;
+};
+
 /**
  * DamageAnalysisTab - Heatmap view showing damage across T/Sv combinations
  */
@@ -20,15 +31,20 @@ function DamageAnalysisTab({ profiles }) {
     for (const t of TOUGHNESS_RANGE) {
       const row = [];
       for (const sv of SAVE_RANGE) {
-        const combined = calculateCombinedDamage(profiles, t, sv);
+        const combined = calculateCombinedDamage(profiles, { 
+          toughness: t, 
+          save: sv,
+          wounds: 1,
+          models: 1,
+        });
         row.push({ 
           ...combined.total, 
           toughness: t, 
           save: sv,
           breakdown: combined.breakdown 
         });
-        maxExpected = Math.max(maxExpected, combined.total.expected);
-        maxStdDev = Math.max(maxStdDev, combined.total.stdDev);
+        maxExpected = Math.max(maxExpected, safeVal(combined.total.expected));
+        maxStdDev = Math.max(maxStdDev, safeVal(combined.total.stdDev));
       }
       data.push(row);
     }
@@ -38,15 +54,20 @@ function DamageAnalysisTab({ profiles }) {
   
   const displayCell = hoveredCell || selectedCell;
   const combinedData = useMemo(() => {
-    return calculateCombinedDamage(profiles, displayCell.toughness, displayCell.save);
+    return calculateCombinedDamage(profiles, { 
+      toughness: displayCell.toughness, 
+      save: displayCell.save,
+      wounds: 1,
+      models: 1,
+    });
   }, [profiles, displayCell]);
   
   const getValue = (cell) => {
     switch (showMode) {
-      case 'expected': return cell.expected;
-      case 'stddev': return cell.stdDev;
-      case 'cv': return cell.expected > 0 ? (cell.stdDev / cell.expected) : 0;
-      default: return cell.expected;
+      case 'expected': return safeVal(cell.expected);
+      case 'stddev': return safeVal(cell.stdDev);
+      case 'cv': return safeVal(cell.expected) > 0 ? (safeVal(cell.stdDev) / safeVal(cell.expected)) : 0;
+      default: return safeVal(cell.expected);
     }
   };
   
@@ -60,8 +81,9 @@ function DamageAnalysisTab({ profiles }) {
   };
   
   const formatValue = (val) => {
-    if (showMode === 'cv') return (val * 100).toFixed(0) + '%';
-    return val.toFixed(1);
+    const v = safeVal(val);
+    if (showMode === 'cv') return (v * 100).toFixed(0) + '%';
+    return v.toFixed(1);
   };
 
   return (
@@ -160,7 +182,7 @@ function DamageAnalysisTab({ profiles }) {
             </div>
             <div className="text-right">
               <div className="text-3xl font-bold text-orange-400">
-                {combinedData.total.expected.toFixed(1)}
+                {fmt(combinedData.total?.expected)}
               </div>
               <div className="text-sm text-gray-400">expected damage</div>
             </div>
@@ -169,14 +191,14 @@ function DamageAnalysisTab({ profiles }) {
           <div className="grid grid-cols-2 gap-4 pt-4 border-t border-gray-700">
             <div>
               <div className="text-2xl font-bold text-gray-300">
-                ±{combinedData.total.stdDev.toFixed(1)}
+                ±{fmt(combinedData.total?.stdDev)}
               </div>
               <div className="text-xs text-gray-500">Std Deviation</div>
             </div>
             <div>
               <div className="text-2xl font-bold text-gray-300">
-                {combinedData.total.expected > 0 
-                  ? ((combinedData.total.stdDev / combinedData.total.expected) * 100).toFixed(0) + '%'
+                {safeVal(combinedData.total?.expected) > 0 
+                  ? ((safeVal(combinedData.total?.stdDev) / safeVal(combinedData.total?.expected)) * 100).toFixed(0) + '%'
                   : '—'}
               </div>
               <div className="text-xs text-gray-500">CV (Variance)</div>
@@ -185,7 +207,7 @@ function DamageAnalysisTab({ profiles }) {
         </div>
         
         <AttackFlowDiagram data={combinedData} profiles={profiles} />
-        <DamageDistribution expected={combinedData.total.expected} stdDev={combinedData.total.stdDev} />
+        <DamageDistribution expected={safeVal(combinedData.total?.expected)} stdDev={safeVal(combinedData.total?.stdDev)} />
       </div>
     </div>
   );
