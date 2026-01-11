@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Stepper } from '../ui';
-import { parseDamage } from '../../utils/damageCalculations';
-import { BS_WS_RANGE, DAMAGE_PRESETS, UNIT_KEYWORDS } from '../../utils/constants';
+import { parseDice } from '../../utils/damageCalculations';
+import { BS_WS_RANGE, DAMAGE_PRESETS, ATTACK_PRESETS, UNIT_KEYWORDS } from '../../utils/constants';
 
 // ============ UI COMPONENTS ============
 
@@ -159,7 +159,8 @@ function AntiKeywordSelector({ value, onChange, color = '#f97316' }) {
 function WeaponProfileCard({ profile, index, color, onUpdate, onRemove, canRemove }) {
   const [showAbilities, setShowAbilities] = useState(false);
   const hitProb = profile.torrent ? 1 : (7 - profile.bs) / 6;
-  const damageStats = parseDamage(profile.damage);
+  const damageStats = parseDice(profile.damage);
+  const attackStats = parseDice(profile.attacks);
   
   // Count active abilities
   const activeAbilities = [
@@ -240,29 +241,52 @@ function WeaponProfileCard({ profile, index, color, onUpdate, onRemove, canRemov
       
       {/* Main Stats */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2 flex gap-3 items-end">
-          <div className="flex-1">
-            <Stepper 
-              label="Attacks" 
-              value={profile.attacks} 
-              onChange={(v) => onUpdate({ ...profile, attacks: v })} 
-              min={1} 
-              small 
-            />
+        {/* Attacks - now supports dice notation */}
+        <div className="col-span-2">
+          <label className="block text-xs text-gray-500 mb-1">Attacks</label>
+          <div className="flex gap-2 items-center">
+            <div className="flex flex-wrap gap-1 flex-1">
+              {ATTACK_PRESETS.slice(0, 7).map(preset => (
+                <button
+                  key={preset}
+                  onClick={() => onUpdate({ ...profile, attacks: preset })}
+                  className={`px-2 py-1 rounded font-mono text-xs transition-colors ${
+                    String(profile.attacks) === preset ? 'text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
+                  style={String(profile.attacks) === preset ? { backgroundColor: color.bg } : {}}
+                >
+                  {preset}
+                </button>
+              ))}
+              <input
+                type="text"
+                value={profile.attacks}
+                onChange={(e) => onUpdate({ ...profile, attacks: e.target.value })}
+                className="px-2 py-1 bg-gray-700 rounded text-white text-xs font-mono border border-gray-600 focus:border-orange-500 focus:outline-none w-16"
+                placeholder="D6+1"
+              />
+            </div>
+            <div className="text-gray-500 text-lg">×</div>
+            <div className="w-24">
+              <Stepper 
+                value={profile.modelCount || 1} 
+                onChange={(v) => onUpdate({ ...profile, modelCount: v })} 
+                min={1}
+                max={100}
+                small 
+              />
+            </div>
           </div>
-          <div className="text-gray-500 text-lg pb-1">×</div>
-          <div className="flex-1">
-            <Stepper 
-              label="Models" 
-              value={profile.modelCount || 1} 
-              onChange={(v) => onUpdate({ ...profile, modelCount: v })} 
-              min={1}
-              max={100}
-              small 
-            />
-          </div>
-          <div className="text-gray-400 text-sm pb-1 min-w-12">
-            = {(profile.attacks || 1) * (profile.modelCount || 1)}
+          <div className="text-xs text-gray-500 mt-1">
+            {(() => {
+              const attackStats = parseDice(profile.attacks);
+              const modelCount = profile.modelCount || 1;
+              const totalMean = attackStats.mean * modelCount;
+              if (attackStats.variance > 0) {
+                return `≈ ${totalMean.toFixed(1)} avg attacks (${attackStats.min * modelCount}–${attackStats.max * modelCount})`;
+              }
+              return `= ${totalMean} total attacks`;
+            })()}
           </div>
         </div>
         
@@ -307,11 +331,11 @@ function WeaponProfileCard({ profile, index, color, onUpdate, onRemove, canRemov
       <div className="mt-3">
         <label className="block text-xs text-gray-500 mb-1">Damage</label>
         <div className="flex flex-wrap gap-1">
-          {DAMAGE_PRESETS.slice(0, 6).map(preset => (
+          {DAMAGE_PRESETS.map(preset => (
             <button
               key={preset}
               onClick={() => onUpdate({ ...profile, damage: preset })}
-              className={`px-2 py-0.5 rounded font-mono text-xs transition-colors ${
+              className={`px-2 py-1 rounded font-mono text-xs transition-colors ${
                 profile.damage === preset ? 'text-white' : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
               }`}
               style={profile.damage === preset ? { backgroundColor: color.bg } : {}}
@@ -323,8 +347,18 @@ function WeaponProfileCard({ profile, index, color, onUpdate, onRemove, canRemov
             type="text"
             value={profile.damage}
             onChange={(e) => onUpdate({ ...profile, damage: e.target.value })}
-            className="px-2 py-0.5 bg-gray-700 rounded text-white text-xs font-mono border border-gray-600 focus:border-orange-500 focus:outline-none w-14"
+            className="px-2 py-1 bg-gray-700 rounded text-white text-xs font-mono border border-gray-600 focus:border-orange-500 focus:outline-none w-16"
+            placeholder="2D6+1"
           />
+        </div>
+        <div className="text-xs text-gray-500 mt-1">
+          {(() => {
+            const dmgStats = parseDice(profile.damage);
+            if (dmgStats.variance > 0) {
+              return `≈ ${dmgStats.mean.toFixed(1)} avg (${dmgStats.min}–${dmgStats.max})`;
+            }
+            return null;
+          })()}
         </div>
       </div>
       
@@ -520,7 +554,12 @@ function WeaponProfileCard({ profile, index, color, onUpdate, onRemove, canRemov
       {/* Stats Footer */}
       <div className="mt-3 pt-2 border-t border-gray-700 text-xs text-gray-500">
         <div className="flex flex-wrap gap-x-4 gap-y-1">
-          <span>Total: {(profile.attacks || 1) * (profile.modelCount || 1)} attacks</span>
+          <span>
+            {attackStats.variance > 0 
+              ? `Attacks: ≈${(attackStats.mean * (profile.modelCount || 1)).toFixed(1)}`
+              : `Attacks: ${attackStats.mean * (profile.modelCount || 1)}`
+            }
+          </span>
           <span>Hit: {profile.torrent ? 'Auto' : `${(hitProb * 100).toFixed(0)}%`}</span>
           <span>
             D: {damageStats.mean.toFixed(1)}

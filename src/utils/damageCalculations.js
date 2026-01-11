@@ -114,47 +114,93 @@ export function getFailSaveProb(save, ap, target = {}) {
   return (finalSave - 1) / 6;
 }
 
-// ============ DAMAGE PARSING ============
+// ============ DICE PARSING ============
 
 /**
- * Parse damage string (e.g., "D6", "2", "D3+1", "2D6") into stats
+ * Parse dice notation string (e.g., "D6", "2", "D3+1", "2D6", "2D6+3") into stats
+ * Used for both attacks and damage values
+ * 
+ * Supported formats:
+ * - Fixed: "1", "2", "10"
+ * - Single die: "D3", "D6"
+ * - Die + bonus: "D3+1", "D6+2"
+ * - Multiple dice: "2D3", "2D6", "3D6"
+ * - Multiple dice + bonus: "2D6+1", "3D3+2"
  */
-export function parseDamage(damageStr) {
-  const str = String(damageStr).trim().toUpperCase();
+export function parseDice(diceStr, defaultVal = 1) {
+  if (diceStr === null || diceStr === undefined) {
+    return { mean: defaultVal, variance: 0, min: defaultVal, max: defaultVal };
+  }
   
+  const str = String(diceStr).trim().toUpperCase();
+  
+  // Empty string
+  if (str === '') {
+    return { mean: defaultVal, variance: 0, min: defaultVal, max: defaultVal };
+  }
+  
+  // Fixed number: "1", "2", "10"
   if (/^\d+$/.test(str)) {
     const val = parseInt(str);
     return { mean: val, variance: 0, min: val, max: val };
   }
   
+  // Single D3 or D6
   if (str === 'D3') return { mean: 2, variance: 2/3, min: 1, max: 3 };
   if (str === 'D6') return { mean: 3.5, variance: 35/12, min: 1, max: 6 };
   
-  const d3Match = str.match(/^D3\+(\d+)$/);
-  if (d3Match) {
-    const bonus = parseInt(d3Match[1]);
-    return { mean: 2 + bonus, variance: 2/3, min: 1 + bonus, max: 3 + bonus };
-  }
-  
-  const d6Match = str.match(/^D6\+(\d+)$/);
-  if (d6Match) {
-    const bonus = parseInt(d6Match[1]);
-    return { mean: 3.5 + bonus, variance: 35/12, min: 1 + bonus, max: 6 + bonus };
-  }
-  
-  const multiMatch = str.match(/^(\d+)D(\d+)$/);
-  if (multiMatch) {
-    const numDice = parseInt(multiMatch[1]);
-    const dieSize = parseInt(multiMatch[2]);
+  // D3+X or D6+X (single die plus bonus)
+  const singleDieMatch = str.match(/^D(\d+)\+(\d+)$/);
+  if (singleDieMatch) {
+    const dieSize = parseInt(singleDieMatch[1]);
+    const bonus = parseInt(singleDieMatch[2]);
+    const dieMean = (dieSize + 1) / 2;
+    const dieVariance = (dieSize * dieSize - 1) / 12;
     return { 
-      mean: numDice * (dieSize + 1) / 2, 
-      variance: numDice * (dieSize * dieSize - 1) / 12,
-      min: numDice,
-      max: numDice * dieSize
+      mean: dieMean + bonus, 
+      variance: dieVariance, 
+      min: 1 + bonus, 
+      max: dieSize + bonus 
     };
   }
   
-  return { mean: 1, variance: 0, min: 1, max: 1 };
+  // XDY+Z (multiple dice plus optional bonus)
+  const multiDiceMatch = str.match(/^(\d+)D(\d+)(?:\+(\d+))?$/);
+  if (multiDiceMatch) {
+    const numDice = parseInt(multiDiceMatch[1]);
+    const dieSize = parseInt(multiDiceMatch[2]);
+    const bonus = multiDiceMatch[3] ? parseInt(multiDiceMatch[3]) : 0;
+    const dieMean = (dieSize + 1) / 2;
+    const dieVariance = (dieSize * dieSize - 1) / 12;
+    return { 
+      mean: numDice * dieMean + bonus, 
+      variance: numDice * dieVariance,
+      min: numDice + bonus,
+      max: numDice * dieSize + bonus
+    };
+  }
+  
+  // Fallback - try to parse as number, otherwise return default
+  const parsed = parseFloat(str);
+  if (!isNaN(parsed)) {
+    return { mean: parsed, variance: 0, min: parsed, max: parsed };
+  }
+  
+  return { mean: defaultVal, variance: 0, min: defaultVal, max: defaultVal };
+}
+
+/**
+ * Parse damage string - wrapper around parseDice for backwards compatibility
+ */
+export function parseDamage(damageStr) {
+  return parseDice(damageStr, 1);
+}
+
+/**
+ * Parse attacks string - wrapper around parseDice
+ */
+export function parseAttacks(attacksStr) {
+  return parseDice(attacksStr, 1);
 }
 
 // ============ REROLL HELPERS ============
@@ -272,10 +318,13 @@ export function calculateDamage(profile, target) {
     blast = false,            // +1 attack per 5 models (for future)
   } = profile || {};
   
-  // Sanitize weapon stats
-  const attacksPerModel = safeNum(rawAttacks, 1);
+  // Sanitize weapon stats - attacks can now be dice notation (e.g., "D6", "2D6")
+  const attacksStats = parseAttacks(rawAttacks);
+  const attacksPerModel = attacksStats.mean;
+  const attacksVariancePerModel = attacksStats.variance;
   const attackerModelCount = safeNum(rawModelCount, 1);
   const attacks = attacksPerModel * attackerModelCount;
+  const attacksVariance = attacksVariancePerModel * attackerModelCount;
   const bs = safeNum(rawBs, 4);
   const strength = safeNum(rawStrength, 4);
   const ap = safeNum(rawAp, 0);
@@ -503,8 +552,16 @@ export function calculateDamage(profile, target) {
   // ===== STEP 5: Calculate Variance =====
   
   const pSuccess = hitProb * woundProb * failSaveProb * fnpPassProb;
+  // Variance from binomial process (which attacks succeed)
   const varN = effectiveAttacks * pSuccess * (1 - pSuccess);
-  const variance = unsavedWounds * damageStats.variance + varN * damageStats.mean * damageStats.mean;
+  // Variance from damage per wound
+  const varFromDamage = unsavedWounds * damageStats.variance;
+  // Variance from expected damage per success
+  const varFromSuccesses = varN * damageStats.mean * damageStats.mean;
+  // Variance from variable attacks (if attacks are dice-based)
+  const varFromAttacks = attacksVariance * pSuccess * pSuccess * damageStats.mean * damageStats.mean;
+  
+  const variance = varFromDamage + varFromSuccesses + varFromAttacks;
   
   // Ensure no NaN values leak out
   return {

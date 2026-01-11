@@ -281,23 +281,23 @@ export const TARGET_PRESETS = [
   { name: 'Intercessors', t: 4, sv: 3, w: 2, m: 5, keywords: ['INFANTRY'] },
   { name: 'Terminators', t: 5, sv: 2, w: 3, m: 5, invuln: 4, keywords: ['INFANTRY'] },
   { name: 'Gravis', t: 6, sv: 3, w: 3, m: 3, keywords: ['INFANTRY'] },
-  { name: 'Custodes', t: 6, sv: 2, w: 3, m: 5, invuln: 4, fnp: 6, keywords: ['INFANTRY'] },
-  { name: 'Death Guard', t: 5, sv: 3, w: 2, m: 5, fnp: 5, minusToWound: 1, keywords: ['INFANTRY', 'CHAOS'] },
+  { name: 'Custodian Guard', t: 6, sv: 2, w: 3, m: 5, invuln: 4, fnp: 6, keywords: ['INFANTRY'] },
+  { name: 'Plague Marines', t: 6, sv: 3, w: 2, m: 5, keywords: ['INFANTRY', 'CHAOS'] }, // Note: FNP/minusToWound are detachment abilities
   
   // Special Infantry
-  { name: 'Bullgryn', t: 6, sv: 4, w: 3, m: 3, invuln: 4, keywords: ['INFANTRY'] },
+  { name: 'Bullgryn', t: 6, sv: 3, w: 3, m: 3, invuln: 4, fnp: 6, damageReduction: 1, keywords: ['INFANTRY'] }, // 4++ Brute Shield, 6+++ FNP, Wall of Muscle -1D
   { name: 'Crisis Suits', t: 5, sv: 3, w: 4, m: 3, keywords: ['INFANTRY'] },
   
   // Monsters
-  { name: 'Carnifex', t: 9, sv: 3, w: 10, m: 1, keywords: ['MONSTER'] },
+  { name: 'Carnifex', t: 9, sv: 2, w: 8, m: 1, keywords: ['MONSTER'] },
   { name: 'Hive Tyrant', t: 10, sv: 2, w: 10, m: 1, invuln: 4, keywords: ['MONSTER', 'PSYKER'] },
-  { name: 'C\'tan Shard', t: 11, sv: 4, w: 12, m: 1, invuln: 4, damageCap: 3, keywords: ['MONSTER'] },
+  { name: 'C\'tan Shard', t: 11, sv: 3, w: 16, m: 1, invuln: 4, fnp: 5, damageReduction: 1, keywords: ['MONSTER'] }, // 4++, 5+++ FNP, Necrodermis -1D
   
   // Vehicles
   { name: 'Rhino', t: 9, sv: 3, w: 10, m: 1, keywords: ['VEHICLE'] },
   { name: 'Leman Russ', t: 11, sv: 2, w: 13, m: 1, keywords: ['VEHICLE'] },
   { name: 'Land Raider', t: 12, sv: 2, w: 16, m: 1, keywords: ['VEHICLE'] },
-  { name: 'Knight', t: 12, sv: 3, w: 22, m: 1, invuln: 5, keywords: ['VEHICLE', 'TITANIC'] },
+  { name: 'Knight', t: 11, sv: 3, w: 26, m: 1, invuln: 5, keywords: ['VEHICLE', 'TITANIC'] }, // Questoris-class
   { name: 'Baneblade', t: 13, sv: 2, w: 24, m: 1, keywords: ['VEHICLE', 'TITANIC'] },
 ];
 
@@ -349,6 +349,10 @@ export const WEAPON_PRESETS = [
 // ============ DAMAGE PRESETS ============
 
 export const DAMAGE_PRESETS = ['1', '2', '3', 'D3', 'D6', 'D6+1', 'D6+2', '2D6'];
+
+// ============ ATTACK PRESETS ============
+
+export const ATTACK_PRESETS = ['1', '2', '3', '4', '5', 'D3', 'D6', 'D6+1', '2D6'];
 
 // ============ DEFAULT VALUES ============
 
