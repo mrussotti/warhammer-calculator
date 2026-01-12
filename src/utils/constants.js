@@ -11,7 +11,7 @@ export const PROFILE_COLORS = [
 
 // ============ STAT RANGES ============
 
-export const TOUGHNESS_RANGE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+export const TOUGHNESS_RANGE = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
 export const SAVE_RANGE = [2, 3, 4, 5, 6, 7]; // 7 = no save
 export const BS_WS_RANGE = [2, 3, 4, 5, 6];
 export const INVULN_RANGE = [3, 4, 5, 6, 7]; // 7 = none
