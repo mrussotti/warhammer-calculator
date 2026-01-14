@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { calculateCombinedDamage, getWoundRollNeeded } from '../../utils/damageCalculations';
+import { calculateCombinedDamage, calculateDamage, getWoundRollNeeded } from '../../utils/damageCalculations';
 import { TARGET_PRESETS, DEFAULT_TARGET, UNIT_KEYWORDS, PROFILE_COLORS } from '../../utils/constants';
 import { Stepper } from '../ui';
 
@@ -49,11 +49,14 @@ function NumberSelect({ label, value, onChange, options, color = 'orange' }) {
   );
 }
 
-function TargetUnitTab({ profiles }) {
+
+
+
+function TargetUnitTab({ profiles, units = [] }) {
   const [target, setTarget] = useState(DEFAULT_TARGET);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [breakdownMode, setBreakdownMode] = useState('unit');
   
-  // Calculate average weapon stats for roll display
   const weaponStats = useMemo(() => {
     if (!profiles || profiles.length === 0) return { bs: 3, strength: 4, ap: 0 };
     const total = profiles.reduce((acc, p) => {
@@ -73,6 +76,61 @@ function TargetUnitTab({ profiles }) {
   }, [profiles]);
   
   const combinedData = useMemo(() => calculateCombinedDamage(profiles, target), [profiles, target]);
+  
+  const unitBreakdown = useMemo(() => {
+    if (!units || units.length === 0) return [];
+    
+    return units.map((unit, unitIndex) => {
+      const profileResults = unit.profiles.map(profile => ({
+        profile,
+        result: calculateDamage(profile, target)
+      }));
+      
+      const unitStats = profileResults.reduce((acc, pr) => ({
+        attacks: acc.attacks + safeVal(pr.result?.attacks),
+        hits: acc.hits + safeVal(pr.result?.expectedHits),
+        wounds: acc.wounds + safeVal(pr.result?.expectedWoundsFromHits),
+        unsaved: acc.unsaved + safeVal(pr.result?.expectedUnsaved),
+        damage: acc.damage + safeVal(pr.result?.expected),
+        kills: acc.kills + safeVal(pr.result?.expectedKills),
+      }), { attacks: 0, hits: 0, wounds: 0, unsaved: 0, damage: 0, kills: 0 });
+      
+      const hitRate = unitStats.attacks > 0 ? unitStats.hits / unitStats.attacks : 0;
+      const woundRate = unitStats.hits > 0 ? unitStats.wounds / unitStats.hits : 0;
+      const saveFailRate = unitStats.wounds > 0 ? unitStats.unsaved / unitStats.wounds : 0;
+      
+      return { unit, unitIndex, ...unitStats, hitRate, woundRate, saveFailRate, profileResults };
+    });
+  }, [units, target]);
+  
+  const weaponBreakdown = useMemo(() => {
+    if (!profiles || profiles.length === 0) return [];
+    
+    const weaponToUnit = {};
+    units.forEach((unit, unitIndex) => {
+      unit.profiles.forEach(profile => {
+        weaponToUnit[profile.id] = { unit, unitIndex };
+      });
+    });
+    
+    return profiles.map((profile, index) => {
+      const result = calculateDamage(profile, target);
+      const attacks = safeVal(result?.attacks);
+      const hits = safeVal(result?.expectedHits);
+      const wounds = safeVal(result?.expectedWoundsFromHits);
+      const unsaved = safeVal(result?.expectedUnsaved);
+      
+      return {
+        profile, index, unitInfo: weaponToUnit[profile.id],
+        attacks, hits, wounds, unsaved,
+        damage: safeVal(result?.expected),
+        kills: safeVal(result?.expectedKills),
+        hitRate: attacks > 0 ? hits / attacks : 0,
+        woundRate: hits > 0 ? wounds / hits : 0,
+        saveFailRate: wounds > 0 ? unsaved / wounds : 0,
+      };
+    });
+  }, [profiles, units, target]);
   
   const analysis = useMemo(() => {
     const { total, breakdown } = combinedData;
@@ -127,11 +185,10 @@ function TargetUnitTab({ profiles }) {
     target.damageCap > 0, target.apReduction > 0,
   ].filter(Boolean).length;
 
-  // Color for "Their Save" - from attacker's perspective
   const getSaveColor = (save) => {
-    if (save > 6) return 'text-green-400'; // No save = great for attacker
-    if (save >= 5) return 'text-yellow-400'; // 5+/6+ = okay
-    return 'text-red-400'; // 2+/3+/4+ = bad for attacker
+    if (save > 6) return 'text-green-400';
+    if (save >= 5) return 'text-yellow-400';
+    return 'text-red-400';
   };
 
   return (
@@ -141,7 +198,6 @@ function TargetUnitTab({ profiles }) {
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
           <h3 className="text-base font-semibold text-white mb-4">Target Unit</h3>
           
-          {/* Presets */}
           <div className="mb-4">
             <label className="block text-xs text-zinc-500 mb-2">Quick Select</label>
             <div className="flex flex-wrap gap-1.5">
@@ -159,7 +215,6 @@ function TargetUnitTab({ profiles }) {
             </div>
           </div>
           
-          {/* Stats */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-zinc-500 mb-1.5">Toughness</label>
@@ -199,14 +254,12 @@ function TargetUnitTab({ profiles }) {
             <Stepper label="Models in Unit" value={target.models} onChange={(v) => setTarget({ ...target, models: v, name: '' })} min={1} max={30} />
           </div>
           
-          {/* Total wound pool */}
           <div className="mt-4 pt-3 border-t border-zinc-800 flex items-center justify-between">
             <span className="text-xs text-zinc-500">Total wound pool</span>
             <span className="text-sm font-bold text-white">{target.wounds * target.models} wounds</span>
           </div>
         </div>
         
-        {/* Defensive Abilities */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg">
           <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center justify-between w-full p-4">
             <div className="flex items-center gap-2">
@@ -278,7 +331,6 @@ function TargetUnitTab({ profiles }) {
             </div>
           </div>
           
-          {/* Roll Requirements */}
           <div className="grid grid-cols-3 border-b border-zinc-800">
             <div className="p-3 text-center border-r border-zinc-800">
               <div className="text-xl font-bold text-blue-400 font-mono">{weaponStats.bs}+</div>
@@ -298,7 +350,6 @@ function TargetUnitTab({ profiles }) {
             </div>
           </div>
           
-          {/* Model Kill Visualization */}
           <div className="p-4 border-b border-zinc-800">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               {Array.from({ length: Math.min(target.models, 12) }).map((_, i) => {
@@ -307,14 +358,8 @@ function TargetUnitTab({ profiles }) {
                 const isFullyDead = killProgress >= 1;
                 const isPartial = killProgress > 0 && killProgress < 1;
                 return (
-                  <div 
-                    key={i} 
-                    className={`relative w-10 h-10 rounded-lg overflow-hidden ${isFullyDead ? 'bg-red-500/30' : 'bg-zinc-800'}`}
-                  >
-                    <div 
-                      className="absolute bottom-0 left-0 right-0 bg-orange-500/80 transition-all"
-                      style={{ height: `${fillPercent}%` }}
-                    />
+                  <div key={i} className={`relative w-10 h-10 rounded-lg overflow-hidden ${isFullyDead ? 'bg-red-500/30' : 'bg-zinc-800'}`}>
+                    <div className="absolute bottom-0 left-0 right-0 bg-orange-500/80 transition-all" style={{ height: `${fillPercent}%` }} />
                     <div className="absolute inset-0 flex items-center justify-center">
                       {isFullyDead ? (
                         <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -338,7 +383,6 @@ function TargetUnitTab({ profiles }) {
             </div>
           </div>
           
-          {/* Probability Cards */}
           <div className="grid grid-cols-2 divide-x divide-zinc-800">
             <div className="p-4 text-center">
               <div className="text-2xl font-bold text-green-400 font-mono">{pct(analysis.probKillAtLeast1)}</div>
@@ -353,59 +397,115 @@ function TargetUnitTab({ profiles }) {
           </div>
         </div>
         
-        {/* Attack Pipeline */}
+        {/* Attack Pipeline - Clean Waterfall */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
           <h3 className="text-sm font-semibold text-white mb-4">Where Your Attacks Go</h3>
           
-          <div className="space-y-3">
-            <FunnelRow 
-              label="Attacks" 
-              value={analysis.totalAttacks} 
-              max={analysis.totalAttacks} 
-              color="bg-zinc-500" 
-              isFirst 
-            />
-            <FunnelRow 
-              label="Hit" 
-              value={analysis.totalHits} 
-              max={analysis.totalAttacks} 
-              prevMax={analysis.totalAttacks}
-              lost={analysis.lostToMisses} 
-              lostLabel="missed" 
-              color="bg-blue-500" 
-            />
-            <FunnelRow 
-              label="Wound" 
-              value={analysis.totalWounds} 
-              max={analysis.totalAttacks} 
-              prevMax={analysis.totalHits}
-              lost={analysis.lostToFailedWounds} 
-              lostLabel="failed to wound" 
-              color="bg-green-500" 
-            />
-            <FunnelRow 
-              label="Unsaved" 
-              value={analysis.totalUnsaved} 
-              max={analysis.totalAttacks} 
-              prevMax={analysis.totalWounds}
-              lost={analysis.lostToSaves} 
-              lostLabel="saved by armor" 
-              color="bg-purple-500" 
-            />
+          <div className="space-y-1">
+            {/* Attacks */}
+            <div className="flex items-center gap-3">
+              <div className="w-16 text-xs text-zinc-400 text-right">Attacks</div>
+              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
+                <div className="h-full bg-zinc-500 rounded" style={{ width: '100%' }} />
+                <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">{fmt(analysis.totalAttacks, 0)}</span>
+              </div>
+              <div className="w-14" />
+            </div>
+            
+            {/* Miss loss */}
+            {analysis.lostToMisses > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="w-16" />
+                <div className="flex-1 flex items-center gap-2 pl-2">
+                  <span className="text-xs text-red-400">↓ −{fmt(analysis.lostToMisses)} missed</span>
+                  <span className="text-[10px] text-zinc-500">({pct(analysis.lostToMisses / analysis.totalAttacks)} of attacks)</span>
+                </div>
+                <div className="w-14" />
+              </div>
+            )}
+            
+            {/* Hits */}
+            <div className="flex items-center gap-3">
+              <div className="w-16 text-xs text-zinc-400 text-right">Hits</div>
+              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
+                <div className="h-full bg-blue-500 rounded" style={{ width: `${(analysis.totalHits / analysis.totalAttacks) * 100}%` }} />
+                <span className="absolute inset-0 flex items-center pl-3 text-sm font-bold text-white">{fmt(analysis.totalHits)}</span>
+              </div>
+              <div className="w-14 text-right">
+                <span className={`text-xs font-medium ${analysis.totalHits / analysis.totalAttacks >= 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {pct(analysis.totalHits / analysis.totalAttacks)}
+                </span>
+              </div>
+            </div>
+            
+            {/* Wound fail loss */}
+            {analysis.lostToFailedWounds > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="w-16" />
+                <div className="flex-1 flex items-center gap-2 pl-2">
+                  <span className="text-xs text-red-400">↓ −{fmt(analysis.lostToFailedWounds)} failed to wound</span>
+                  <span className="text-[10px] text-zinc-500">({pct(analysis.lostToFailedWounds / analysis.totalHits)} of hits)</span>
+                </div>
+                <div className="w-14" />
+              </div>
+            )}
+            
+            {/* Wounds */}
+            <div className="flex items-center gap-3">
+              <div className="w-16 text-xs text-zinc-400 text-right">Wounds</div>
+              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
+                <div className="h-full bg-green-500 rounded" style={{ width: `${(analysis.totalWounds / analysis.totalAttacks) * 100}%` }} />
+                <span className="absolute inset-0 flex items-center pl-3 text-sm font-bold text-white">{fmt(analysis.totalWounds)}</span>
+              </div>
+              <div className="w-14 text-right">
+                <span className={`text-xs font-medium ${analysis.totalWounds / analysis.totalHits >= 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {pct(analysis.totalWounds / analysis.totalHits)}
+                </span>
+              </div>
+            </div>
+            
+            {/* Save loss */}
+            {analysis.lostToSaves > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="w-16" />
+                <div className="flex-1 flex items-center gap-2 pl-2">
+                  <span className="text-xs text-red-400">↓ −{fmt(analysis.lostToSaves)} saved by armor</span>
+                  <span className="text-[10px] text-zinc-500">({pct(analysis.lostToSaves / analysis.totalWounds)} of wounds)</span>
+                </div>
+                <div className="w-14" />
+              </div>
+            )}
+            
+            {/* Unsaved */}
+            <div className="flex items-center gap-3">
+              <div className="w-16 text-xs text-zinc-400 text-right">Unsaved</div>
+              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
+                <div className="h-full bg-purple-500 rounded" style={{ width: `${(analysis.totalUnsaved / analysis.totalAttacks) * 100}%` }} />
+                <span className="absolute inset-0 flex items-center pl-3 text-sm font-bold text-white">{fmt(analysis.totalUnsaved)}</span>
+              </div>
+              <div className="w-14 text-right">
+                <span className={`text-xs font-medium ${analysis.totalUnsaved / analysis.totalWounds >= 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {pct(analysis.totalUnsaved / analysis.totalWounds)}
+                </span>
+              </div>
+            </div>
           </div>
           
-          <div className="mt-4 pt-3 border-t border-zinc-800">
+          {/* Total damage result */}
+          <div className="mt-4 pt-4 border-t border-zinc-800">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-zinc-400">Total Damage</span>
-              <span className="text-lg text-orange-400 font-bold font-mono">{fmt(analysis.totalDamage)}</span>
-            </div>
-            <div className="text-xs text-zinc-500 mt-1">
-              Overall: <span className="text-orange-400 font-medium">{pct(analysis.totalUnsaved / analysis.totalAttacks)}</span> of attacks get through
+              <div>
+                <span className="text-sm text-zinc-400">Total Damage</span>
+                <div className="text-[10px] text-zinc-500 mt-0.5">
+                  {pct(analysis.totalUnsaved / analysis.totalAttacks)} of attacks get through
+                </div>
+              </div>
+              <span className="text-2xl text-orange-400 font-bold font-mono">{fmt(analysis.totalDamage)}</span>
             </div>
           </div>
         </div>
         
-        {/* Biggest Problem + Suggestion */}
+        {/* Biggest Problem */}
         {analysis.biggestLoss.value > 0 && (
           <div className="bg-gradient-to-r from-red-500/10 to-transparent border border-red-500/20 rounded-lg p-4">
             <div className="flex items-start gap-3">
@@ -427,74 +527,117 @@ function TargetUnitTab({ profiles }) {
           </div>
         )}
         
-        {/* Per-Weapon Breakdown */}
-        {analysis.breakdown.length > 1 && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-white mb-3">By Weapon</h3>
-            <div className="space-y-2">
-              {analysis.breakdown.map((b, i) => {
-                const color = PROFILE_COLORS[i % PROFILE_COLORS.length];
-                const dmg = safeVal(b.result?.expected);
-                const kills = safeVal(b.result?.expectedKills);
-                const pctOfTotal = analysis.totalDamage > 0 ? (dmg / analysis.totalDamage) * 100 : 0;
-                return (
-                  <div key={b.profile?.id || i}>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: color.bg }} />
-                        <span className="text-zinc-300">{b.profile?.name || 'Weapon'}</span>
+        {/* Breakdown Section */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+          <div className="flex border-b border-zinc-800">
+            <button
+              onClick={() => setBreakdownMode('unit')}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-all ${
+                breakdownMode === 'unit' ? 'bg-zinc-800 text-white border-b-2 border-orange-500' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              By Unit
+            </button>
+            <button
+              onClick={() => setBreakdownMode('weapon')}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-all ${
+                breakdownMode === 'weapon' ? 'bg-zinc-800 text-white border-b-2 border-orange-500' : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              By Weapon
+            </button>
+          </div>
+          
+          <div className="p-4">
+            {breakdownMode === 'unit' && unitBreakdown.length > 0 && (
+              <div className="space-y-4">
+                {unitBreakdown.map((ub) => {
+                  const color = PROFILE_COLORS[ub.unitIndex % PROFILE_COLORS.length];
+                  const dmgPct = analysis.totalDamage > 0 ? (ub.damage / analysis.totalDamage) * 100 : 0;
+                  return (
+                    <div key={ub.unit.id} className="border-l-2 pl-3" style={{ borderColor: color.bg }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-semibold text-white">{ub.unit.name}</span>
+                        <span className="text-xs text-zinc-400 font-mono">{fmt(dmgPct, 0)}%</span>
                       </div>
-                      <span className="text-white font-mono">{fmt(dmg)} dmg · {fmt(kills, 1)} kills</span>
+                      <div className="text-xs text-zinc-400 mb-1.5 font-mono">
+                        <span className="text-zinc-300">{fmt(ub.attacks, 0)}</span> atk → 
+                        <span className="text-blue-400"> {fmt(ub.hits, 1)}</span> hits → 
+                        <span className="text-green-400"> {fmt(ub.wounds, 1)}</span> wnd → 
+                        <span className="text-purple-400"> {fmt(ub.unsaved, 1)}</span> unsv
+                      </div>
+                      <div className="text-[10px] text-zinc-500 mb-2">
+                        <span className={ub.hitRate >= 0.5 ? 'text-green-400' : ub.hitRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}>{pct(ub.hitRate)}</span> hit · 
+                        <span className={ub.woundRate >= 0.5 ? 'text-green-400' : ub.woundRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(ub.woundRate)}</span> wnd · 
+                        <span className={ub.saveFailRate >= 0.5 ? 'text-green-400' : ub.saveFailRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(ub.saveFailRate)}</span> unsv
+                      </div>
+                      <div className="flex items-center gap-4 text-xs mb-2">
+                        <span className="text-zinc-500">Damage: <span className="text-orange-400 font-semibold font-mono">{fmt(ub.damage)}</span></span>
+                        <span className="text-zinc-500">Kills: <span className="text-orange-400 font-semibold font-mono">{fmt(ub.kills, 1)}</span></span>
+                      </div>
+                      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-2">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${dmgPct}%`, backgroundColor: color.bg }} />
+                      </div>
+                      <div className="ml-2 space-y-1 border-l border-zinc-700 pl-2">
+                        {ub.profileResults.map((pr) => (
+                          <div key={pr.profile.id} className="flex items-center justify-between text-[11px]">
+                            <span className="text-zinc-500 truncate max-w-[140px]">└ {pr.profile.name}</span>
+                            <span className="text-zinc-400 font-mono">{fmt(safeVal(pr.result?.expected))} dmg</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${pctOfTotal}%`, backgroundColor: color.bg }} />
+                  );
+                })}
+              </div>
+            )}
+            
+            {breakdownMode === 'weapon' && weaponBreakdown.length > 0 && (
+              <div className="space-y-4">
+                {weaponBreakdown.map((wb) => {
+                  const color = PROFILE_COLORS[wb.index % PROFILE_COLORS.length];
+                  const dmgPct = analysis.totalDamage > 0 ? (wb.damage / analysis.totalDamage) * 100 : 0;
+                  return (
+                    <div key={wb.profile?.id || wb.index} className="border-l-2 pl-3" style={{ borderColor: color.bg }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">{wb.profile?.name || 'Weapon'}</span>
+                          {wb.unitInfo && <span className="text-[10px] text-zinc-500">({wb.unitInfo.unit.name})</span>}
+                        </div>
+                        <span className="text-xs text-zinc-400 font-mono">{fmt(dmgPct, 0)}%</span>
+                      </div>
+                      <div className="text-xs text-zinc-400 mb-1.5 font-mono">
+                        <span className="text-zinc-300">{fmt(wb.attacks, 0)}</span> atk → 
+                        <span className="text-blue-400"> {fmt(wb.hits, 1)}</span> hits → 
+                        <span className="text-green-400"> {fmt(wb.wounds, 1)}</span> wnd → 
+                        <span className="text-purple-400"> {fmt(wb.unsaved, 1)}</span> unsv
+                      </div>
+                      <div className="text-[10px] text-zinc-500 mb-2">
+                        <span className={wb.hitRate >= 0.5 ? 'text-green-400' : wb.hitRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}>{pct(wb.hitRate)}</span> hit · 
+                        <span className={wb.woundRate >= 0.5 ? 'text-green-400' : wb.woundRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(wb.woundRate)}</span> wnd · 
+                        <span className={wb.saveFailRate >= 0.5 ? 'text-green-400' : wb.saveFailRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(wb.saveFailRate)}</span> unsv
+                      </div>
+                      <div className="flex items-center gap-4 text-xs mb-2">
+                        <span className="text-zinc-500">Damage: <span className="text-orange-400 font-semibold font-mono">{fmt(wb.damage)}</span></span>
+                        <span className="text-zinc-500">Kills: <span className="text-orange-400 font-semibold font-mono">{fmt(wb.kills, 1)}</span></span>
+                      </div>
+                      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${dmgPct}%`, backgroundColor: color.bg }} />
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            {((breakdownMode === 'unit' && unitBreakdown.length === 0) || (breakdownMode === 'weapon' && weaponBreakdown.length === 0)) && (
+              <div className="text-center py-6 text-zinc-500 text-sm">
+                No {breakdownMode === 'unit' ? 'units' : 'weapons'} to display
+              </div>
+            )}
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// Funnel row component - with percentage showing conversion rate
-function FunnelRow({ label, value, max, prevMax, lost, lostLabel, color, isFirst = false }) {
-  const pctWidth = max > 0 ? (value / max) * 100 : 0;
-  // Show conversion rate from previous step (e.g., hits/attacks, wounds/hits)
-  const conversionRate = prevMax > 0 ? (value / prevMax) : (isFirst ? 1 : 0);
-  
-  return (
-    <div>
-      <div className="flex items-center gap-3">
-        <div className="w-14 text-xs text-zinc-400 text-right">{label}</div>
-        <div className="flex-1 h-5 bg-zinc-800/50 rounded relative overflow-hidden">
-          <div 
-            className={`h-full ${color} rounded transition-all flex items-center justify-center`}
-            style={{ width: `${Math.max(pctWidth, 8)}%` }}
-          >
-            <span className="text-[11px] font-bold text-white drop-shadow">{fmt(value)}</span>
-          </div>
-        </div>
-        <div className="w-12 text-right">
-          {!isFirst && (
-            <span className={`text-xs font-medium ${conversionRate >= 0.5 ? 'text-green-400' : conversionRate >= 0.25 ? 'text-yellow-400' : 'text-red-400'}`}>
-              {pct(conversionRate)}
-            </span>
-          )}
         </div>
       </div>
-      {lost > 0 && (
-        <div className="flex items-center gap-3 mt-0.5">
-          <div className="w-14" />
-          <div className="text-[10px] text-red-400">
-            −{fmt(lost)} {lostLabel}
-          </div>
-          <div className="w-12" />
-        </div>
-      )}
     </div>
   );
 }
