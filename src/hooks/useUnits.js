@@ -5,15 +5,8 @@ import { DEFAULT_PROFILE } from '../utils/constants';
  * Default unit structure
  */
 export const DEFAULT_UNIT = {
-  name: 'Intercessor Squad',
-  profiles: [
-    { 
-      id: 1, 
-      ...DEFAULT_PROFILE,
-      name: 'Bolt Rifle',
-      modelCount: 5,
-    }
-  ]
+  name: 'New Unit',
+  profiles: []
 };
 
 /**
@@ -22,53 +15,59 @@ export const DEFAULT_UNIT = {
  * Units contain weapon profiles, allowing for organized list building
  */
 export function useUnits(initialUnits = null) {
-  const [units, setUnits] = useState(
-    initialUnits || [{ id: 1, ...DEFAULT_UNIT }]
-  );
+  // Start with empty array - user adds units via search
+  const [units, setUnits] = useState(initialUnits || []);
   
   // Generate unique ID
   const generateId = useCallback(() => {
     return Date.now() + Math.random();
   }, []);
   
-  // Add a new unit
+  // Add a new empty unit (legacy, kept for manual creation)
   const addUnit = useCallback(() => {
     const newId = generateId();
     setUnits(prev => [...prev, {
       id: newId,
-      name: `Unit ${prev.length + 1}`,
-      profiles: [{
-        id: generateId(),
-        name: 'Weapon 1',
-        attacks: 1,
-        modelCount: 1,
-        bs: 3,
-        strength: 4,
-        ap: 0,
-        damage: '1',
-        // Hit modifiers
-        torrent: false,
-        heavy: false,
-        hitMod: 0,
-        rerollHits: 'none',
-        critHitOn: 6,
-        // Wound modifiers
-        lance: false,
-        woundMod: 0,
-        twinLinked: false,
-        rerollWounds: 'none',
-        critWoundOn: 6,
-        // Critical abilities
-        sustainedHits: 0,
-        lethalHits: false,
-        devastatingWounds: false,
-        antiKeyword: null,
-        // Range/other
-        melta: 0,
-        rapidFire: 0,
-        ignoresCover: false,
-        blast: false,
-      }]
+      name: 'New Unit',
+      profiles: []
+    }]);
+  }, [generateId]);
+  
+  // Add a unit with pre-loaded data (name and profiles)
+  // This is the NEW primary way to add units
+  const addUnitWithData = useCallback((unitData) => {
+    const newId = generateId();
+    const profiles = (unitData.profiles || []).map(p => ({
+      // Defaults for all ability flags
+      modelCount: 1,
+      torrent: false,
+      heavy: false,
+      hitMod: 0,
+      rerollHits: 'none',
+      critHitOn: 6,
+      lance: false,
+      woundMod: 0,
+      twinLinked: false,
+      rerollWounds: 'none',
+      critWoundOn: 6,
+      sustainedHits: 0,
+      lethalHits: false,
+      devastatingWounds: false,
+      antiKeyword: null,
+      melta: 0,
+      rapidFire: 0,
+      ignoresCover: false,
+      blast: false,
+      // Override with provided data
+      ...p,
+      // Always generate new ID
+      id: generateId(),
+    }));
+    
+    setUnits(prev => [...prev, {
+      id: newId,
+      name: unitData.name || 'New Unit',
+      profiles,
     }]);
   }, [generateId]);
   
@@ -108,44 +107,115 @@ export function useUnits(initialUnits = null) {
   }, [generateId]);
   
   // Add a weapon profile to a unit
-  const addProfile = useCallback((unitId) => {
+  const addProfile = useCallback((unitId, initialData = null) => {
+    setUnits(prev => prev.map(u => {
+      if (u.id !== unitId) return u;
+      
+      // If initialData is provided, use it; otherwise create defaults
+      const newProfile = initialData 
+        ? {
+            // Start with defaults for any missing fields
+            modelCount: 1,
+            torrent: false,
+            heavy: false,
+            hitMod: 0,
+            rerollHits: 'none',
+            critHitOn: 6,
+            lance: false,
+            woundMod: 0,
+            twinLinked: false,
+            rerollWounds: 'none',
+            critWoundOn: 6,
+            sustainedHits: 0,
+            lethalHits: false,
+            devastatingWounds: false,
+            antiKeyword: null,
+            antiValue: null,
+            melta: 0,
+            rapidFire: 0,
+            ignoresCover: false,
+            blast: false,
+            // Override with provided data
+            ...initialData,
+            // Always generate a new ID
+            id: generateId(),
+          }
+        : {
+            id: generateId(),
+            name: `Weapon ${u.profiles.length + 1}`,
+            attacks: 1,
+            modelCount: 1,
+            bs: 3,
+            strength: 4,
+            ap: 0,
+            damage: 1,
+            // Hit modifiers
+            torrent: false,
+            heavy: false,
+            hitMod: 0,
+            rerollHits: 'none',
+            critHitOn: 6,
+            // Wound modifiers
+            lance: false,
+            woundMod: 0,
+            twinLinked: false,
+            rerollWounds: 'none',
+            critWoundOn: 6,
+            // Critical abilities
+            sustainedHits: 0,
+            lethalHits: false,
+            devastatingWounds: false,
+            antiKeyword: null,
+            antiValue: null,
+            // Range/other
+            melta: 0,
+            rapidFire: 0,
+            ignoresCover: false,
+            blast: false,
+          };
+      
+      return {
+        ...u,
+        profiles: [...u.profiles, newProfile]
+      };
+    }));
+  }, [generateId]);
+  
+  // Replace all profiles for a unit (useful for loading a full loadout)
+  const setUnitProfiles = useCallback((unitId, newProfiles) => {
     setUnits(prev => prev.map(u => {
       if (u.id !== unitId) return u;
       
       return {
         ...u,
-        profiles: [...u.profiles, {
-          id: generateId(),
-          name: `Weapon ${u.profiles.length + 1}`,
-          attacks: 1,
+        profiles: newProfiles.map(p => ({
+          // Defaults
           modelCount: 1,
-          bs: 3,
-          strength: 4,
-          ap: 0,
-          damage: '1',
-          // Hit modifiers
+          bs: 4,
           torrent: false,
           heavy: false,
           hitMod: 0,
           rerollHits: 'none',
           critHitOn: 6,
-          // Wound modifiers
           lance: false,
           woundMod: 0,
           twinLinked: false,
           rerollWounds: 'none',
           critWoundOn: 6,
-          // Critical abilities
           sustainedHits: 0,
           lethalHits: false,
           devastatingWounds: false,
           antiKeyword: null,
-          // Range/other
+          antiValue: null,
           melta: 0,
           rapidFire: 0,
           ignoresCover: false,
           blast: false,
-        }]
+          // Override with provided data
+          ...p,
+          // Always generate a new ID
+          id: generateId(),
+        }))
       };
     }));
   }, [generateId]);
@@ -176,10 +246,18 @@ export function useUnits(initialUnits = null) {
     }));
   }, []);
   
-  // Reset to default
+  // Clear all profiles from a unit
+  const clearProfiles = useCallback((unitId) => {
+    setUnits(prev => prev.map(u => {
+      if (u.id !== unitId) return u;
+      return { ...u, profiles: [] };
+    }));
+  }, []);
+  
+  // Reset to empty
   const resetUnits = useCallback(() => {
-    setUnits([{ id: generateId(), ...DEFAULT_UNIT }]);
-  }, [generateId]);
+    setUnits([]);
+  }, []);
   
   // Get flattened profiles for calculations (backwards compatible)
   const allProfiles = useMemo(() => {
@@ -198,10 +276,13 @@ export function useUnits(initialUnits = null) {
     units,
     setUnits,
     addUnit,
+    addUnitWithData,  // NEW: primary way to add units
     updateUnit,
     removeUnit,
     duplicateUnit,
     addProfile,
+    setUnitProfiles,
+    clearProfiles,
     updateProfile,
     removeProfile,
     resetUnits,

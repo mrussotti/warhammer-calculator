@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { calculateCombinedDamage, calculateDamage, getWoundRollNeeded } from '../../utils/damageCalculations';
 import { TARGET_PRESETS, DEFAULT_TARGET, UNIT_KEYWORDS, PROFILE_COLORS } from '../../utils/constants';
 import { Stepper } from '../ui';
+import { UnitSearch } from '../units';
 
 const fmt = (val, decimals = 1) => { const n = Number(val); return isNaN(n) || !isFinite(n) ? '0' : n.toFixed(decimals); };
 const safeVal = (val) => { const n = Number(val); return isNaN(n) || !isFinite(n) ? 0 : n; };
@@ -49,13 +50,93 @@ function NumberSelect({ label, value, onChange, options, color = 'orange' }) {
   );
 }
 
+// Compact weapon contribution bar
+function WeaponBar({ name, damage, totalDamage, color, unitName }) {
+  const percentage = totalDamage > 0 ? (damage / totalDamage) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-white truncate">{name}</span>
+          {unitName && <span className="text-[10px] text-zinc-500 truncate">({unitName})</span>}
+        </div>
+        <div className="flex items-center gap-2 mt-1">
+          <div className="flex-1 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+            <div 
+              className="h-full rounded-full transition-all" 
+              style={{ width: `${percentage}%`, backgroundColor: color }} 
+            />
+          </div>
+          <span className="text-xs text-zinc-400 font-mono w-16 text-right">{fmt(damage)} dmg</span>
+          <span className="text-xs text-zinc-500 font-mono w-10 text-right">{fmt(percentage, 0)}%</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-
+// Unit breakdown card for multi-unit view
+function UnitBreakdownCard({ unit, unitIndex, damage, kills, totalDamage, profileResults, isExpanded, onToggle }) {
+  const color = PROFILE_COLORS[unitIndex % PROFILE_COLORS.length];
+  const percentage = totalDamage > 0 ? (damage / totalDamage) * 100 : 0;
+  
+  return (
+    <div className="border-l-2 pl-3" style={{ borderColor: color.bg }}>
+      <button 
+        onClick={onToggle}
+        className="w-full flex items-center justify-between py-2 hover:bg-zinc-800/30 -ml-3 pl-3 pr-2 rounded-r transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <svg 
+            className={`w-3 h-3 text-zinc-500 transition-transform ${isExpanded ? 'rotate-90' : ''}`} 
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="text-sm font-semibold text-white">{unit.name}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-orange-400 font-mono font-semibold">{fmt(damage)} dmg</span>
+          <span className="text-xs text-zinc-500 font-mono">{fmt(percentage, 0)}%</span>
+        </div>
+      </button>
+      
+      {/* Progress bar */}
+      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-2">
+        <div className="h-full rounded-full transition-all" style={{ width: `${percentage}%`, backgroundColor: color.bg }} />
+      </div>
+      
+      {/* Expanded weapon details */}
+      {isExpanded && (
+        <div className="ml-2 space-y-1 border-l border-zinc-700 pl-3 pb-2">
+          {profileResults.map((pr, idx) => {
+            const wpnDmg = safeVal(pr.result?.expected);
+            const wpnPct = damage > 0 ? (wpnDmg / damage) * 100 : 0;
+            return (
+              <div key={pr.profile.id} className="flex items-center justify-between text-xs py-1">
+                <span className="text-zinc-400 truncate max-w-[160px]">{pr.profile.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-zinc-300 font-mono">{fmt(wpnDmg)} dmg</span>
+                  <span className="text-zinc-500 font-mono w-8 text-right">{fmt(wpnPct, 0)}%</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function TargetUnitTab({ profiles, units = [] }) {
   const [target, setTarget] = useState(DEFAULT_TARGET);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [breakdownMode, setBreakdownMode] = useState('unit');
+  const [expandedUnits, setExpandedUnits] = useState({});
+  const [selectedSearchUnit, setSelectedSearchUnit] = useState(null);
+  
+  // Determine if we have multiple units (to show unit breakdown)
+  const hasMultipleUnits = units.length > 1;
   
   const weaponStats = useMemo(() => {
     if (!profiles || profiles.length === 0) return { bs: 3, strength: 4, ap: 0 };
@@ -77,6 +158,7 @@ function TargetUnitTab({ profiles, units = [] }) {
   
   const combinedData = useMemo(() => calculateCombinedDamage(profiles, target), [profiles, target]);
   
+  // Unit breakdown for multi-unit view
   const unitBreakdown = useMemo(() => {
     if (!units || units.length === 0) return [];
     
@@ -86,50 +168,35 @@ function TargetUnitTab({ profiles, units = [] }) {
         result: calculateDamage(profile, target)
       }));
       
-      const unitStats = profileResults.reduce((acc, pr) => ({
-        attacks: acc.attacks + safeVal(pr.result?.attacks),
-        hits: acc.hits + safeVal(pr.result?.expectedHits),
-        wounds: acc.wounds + safeVal(pr.result?.expectedWoundsFromHits),
-        unsaved: acc.unsaved + safeVal(pr.result?.expectedUnsaved),
-        damage: acc.damage + safeVal(pr.result?.expected),
-        kills: acc.kills + safeVal(pr.result?.expectedKills),
-      }), { attacks: 0, hits: 0, wounds: 0, unsaved: 0, damage: 0, kills: 0 });
+      const damage = profileResults.reduce((sum, pr) => sum + safeVal(pr.result?.expected), 0);
+      const kills = profileResults.reduce((sum, pr) => sum + safeVal(pr.result?.expectedKills), 0);
       
-      const hitRate = unitStats.attacks > 0 ? unitStats.hits / unitStats.attacks : 0;
-      const woundRate = unitStats.hits > 0 ? unitStats.wounds / unitStats.hits : 0;
-      const saveFailRate = unitStats.wounds > 0 ? unitStats.unsaved / unitStats.wounds : 0;
-      
-      return { unit, unitIndex, ...unitStats, hitRate, woundRate, saveFailRate, profileResults };
+      return { unit, unitIndex, damage, kills, profileResults };
     });
   }, [units, target]);
   
+  // Weapon breakdown - always calculate for weapon contribution view
   const weaponBreakdown = useMemo(() => {
     if (!profiles || profiles.length === 0) return [];
     
+    // Map weapons to their parent units
     const weaponToUnit = {};
-    units.forEach((unit, unitIndex) => {
+    units.forEach((unit) => {
       unit.profiles.forEach(profile => {
-        weaponToUnit[profile.id] = { unit, unitIndex };
+        weaponToUnit[profile.id] = unit.name;
       });
     });
     
     return profiles.map((profile, index) => {
       const result = calculateDamage(profile, target);
-      const attacks = safeVal(result?.attacks);
-      const hits = safeVal(result?.expectedHits);
-      const wounds = safeVal(result?.expectedWoundsFromHits);
-      const unsaved = safeVal(result?.expectedUnsaved);
-      
       return {
-        profile, index, unitInfo: weaponToUnit[profile.id],
-        attacks, hits, wounds, unsaved,
+        profile,
+        index,
+        unitName: weaponToUnit[profile.id],
         damage: safeVal(result?.expected),
         kills: safeVal(result?.expectedKills),
-        hitRate: attacks > 0 ? hits / attacks : 0,
-        woundRate: hits > 0 ? wounds / hits : 0,
-        saveFailRate: wounds > 0 ? unsaved / wounds : 0,
       };
-    });
+    }).sort((a, b) => b.damage - a.damage); // Sort by damage descending
   }, [profiles, units, target]);
   
   const analysis = useMemo(() => {
@@ -146,9 +213,9 @@ function TargetUnitTab({ profiles, units = [] }) {
     const lostToSaves = totalWounds - totalUnsaved;
     
     const losses = [
-      { name: 'Misses', value: lostToMisses, suggestion: 'Improve BS or add hit rerolls' },
-      { name: 'Failed Wounds', value: lostToFailedWounds, suggestion: 'Need higher Strength' },
-      { name: 'Armor Saves', value: lostToSaves, suggestion: 'Need more AP' },
+      { name: 'Misses', value: lostToMisses, suggestion: 'Improve BS or add hit rerolls', detail: `${pct(lostToMisses / totalAttacks)} of attacks missed` },
+      { name: 'Failed Wounds', value: lostToFailedWounds, suggestion: 'Need higher Strength', detail: `${pct(lostToFailedWounds / totalHits)} of hits failed to wound` },
+      { name: 'Armor Saves', value: lostToSaves, suggestion: 'Need more AP', detail: `${pct(lostToSaves / totalWounds)} of wounds saved` },
     ];
     const biggestLoss = losses.reduce((max, l) => l.value > max.value ? l : max, losses[0]);
     
@@ -171,6 +238,7 @@ function TargetUnitTab({ profiles, units = [] }) {
   }, [combinedData, target, weaponStats]);
 
   const applyPreset = (preset) => {
+    setSelectedSearchUnit(null); // Clear search selection when using preset
     setTarget({
       ...DEFAULT_TARGET, toughness: preset.t, save: preset.sv, wounds: preset.w,
       models: preset.m, name: preset.name, invuln: preset.invuln || 7,
@@ -179,9 +247,30 @@ function TargetUnitTab({ profiles, units = [] }) {
     });
   };
 
+  const handleUnitSelect = (unit) => {
+    setSelectedSearchUnit(unit);
+    setTarget({
+      ...target,
+      name: unit.name,
+      toughness: unit.toughness,
+      save: unit.save,
+      wounds: unit.wounds,
+      invuln: unit.invuln ?? 7,
+      fnp: unit.fnp ?? 7,
+      damageReduction: unit.damageReduction ?? 0,
+      damageCap: unit.damageCap ?? 0,
+      keywords: unit.keywords || [],
+      models: target.models || 1,
+    });
+  };
+
+  const handleClearSearchUnit = () => {
+    setSelectedSearchUnit(null);
+  };
+
   const activeDefenses = [
     target.invuln < 7, target.fnp < 7, target.hasCover, target.stealth,
-    target.minusToWound > 0, target.transhumanlike, target.damageReduction > 0,
+    target.minusToWound > 0, target.transhumanlike, target.damageReduction !== 0 && target.damageReduction != null,
     target.damageCap > 0, target.apReduction > 0,
   ].filter(Boolean).length;
 
@@ -189,6 +278,10 @@ function TargetUnitTab({ profiles, units = [] }) {
     if (save > 6) return 'text-green-400';
     if (save >= 5) return 'text-yellow-400';
     return 'text-red-400';
+  };
+  
+  const toggleUnitExpanded = (unitId) => {
+    setExpandedUnits(prev => ({ ...prev, [unitId]: !prev[unitId] }));
   };
 
   return (
@@ -198,6 +291,17 @@ function TargetUnitTab({ profiles, units = [] }) {
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
           <h3 className="text-base font-semibold text-white mb-4">Target Unit</h3>
           
+          <div className="mb-4">
+            <label className="block text-xs text-zinc-500 mb-2">Search Unit Database</label>
+            <UnitSearch 
+              onSelect={handleUnitSelect}
+              onClear={handleClearSearchUnit}
+              selectedUnit={selectedSearchUnit}
+              placeholder="Type to search (e.g. 'Terminator', 'Carnifex')"
+            />
+            <div className="text-[10px] text-zinc-600 mt-1">Powered by Wahapedia</div>
+          </div>
+
           <div className="mb-4">
             <label className="block text-xs text-zinc-500 mb-2">Quick Select</label>
             <div className="flex flex-wrap gap-1.5">
@@ -285,10 +389,10 @@ function TargetUnitTab({ profiles, units = [] }) {
                 <ToggleChip label="Transhuman" active={target.transhumanlike} onChange={(v) => setTarget({ ...target, transhumanlike: v })} color="green" />
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <NumberSelect label="-X Damage" value={target.damageReduction || 0} onChange={(v) => setTarget({ ...target, damageReduction: v })}
-                  options={[{ value: 0, label: 'None' }, { value: 1, label: '-1' }, { value: 2, label: '-2' }]} color="blue" />
+                <NumberSelect label="-X Damage" value={target.damageReduction ?? 0} onChange={(v) => setTarget({ ...target, damageReduction: v })}
+                  options={[{ value: 0, label: 'None' }, { value: -1, label: 'Halve' }, { value: 1, label: '-1' }, { value: 2, label: '-2' }]} color="blue" />
                 <NumberSelect label="Dmg Cap" value={target.damageCap || 0} onChange={(v) => setTarget({ ...target, damageCap: v })}
-                  options={[{ value: 0, label: 'None' }, { value: 3, label: 'Max 3' }, { value: 6, label: 'Max 6' }]} color="blue" />
+                  options={[{ value: 0, label: 'None' }, { value: 3, label: 'Max 3' }, { value: 6, label: 'Max 6' }, { value: 8, label: 'Max 8' }]} color="blue" />
               </div>
               <div>
                 <label className="block text-xs text-zinc-500 mb-1.5">Keywords (for Anti-X)</label>
@@ -505,7 +609,7 @@ function TargetUnitTab({ profiles, units = [] }) {
           </div>
         </div>
         
-        {/* Biggest Problem */}
+        {/* Biggest Problem - Tactical Insight */}
         {analysis.biggestLoss.value > 0 && (
           <div className="bg-gradient-to-r from-red-500/10 to-transparent border border-red-500/20 rounded-lg p-4">
             <div className="flex items-start gap-3">
@@ -517,7 +621,7 @@ function TargetUnitTab({ profiles, units = [] }) {
               <div>
                 <div className="text-sm font-medium text-white">Biggest Loss: {analysis.biggestLoss.name}</div>
                 <div className="text-xs text-zinc-400 mt-0.5">
-                  {fmt(analysis.biggestLoss.value)} attacks ({pct(analysis.biggestLoss.value / analysis.totalAttacks)}) lost here
+                  {analysis.biggestLoss.detail}
                 </div>
                 <div className="text-xs text-orange-400 mt-1.5 flex items-center gap-1">
                   <span>💡</span> {analysis.biggestLoss.suggestion}
@@ -527,116 +631,58 @@ function TargetUnitTab({ profiles, units = [] }) {
           </div>
         )}
         
-        {/* Breakdown Section */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
-          <div className="flex border-b border-zinc-800">
-            <button
-              onClick={() => setBreakdownMode('unit')}
-              className={`flex-1 px-4 py-3 text-sm font-medium transition-all ${
-                breakdownMode === 'unit' ? 'bg-zinc-800 text-white border-b-2 border-orange-500' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              By Unit
-            </button>
-            <button
-              onClick={() => setBreakdownMode('weapon')}
-              className={`flex-1 px-4 py-3 text-sm font-medium transition-all ${
-                breakdownMode === 'weapon' ? 'bg-zinc-800 text-white border-b-2 border-orange-500' : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              By Weapon
-            </button>
+        {/* Weapon Contribution - Always shown */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">Weapon Contribution</h3>
+            <span className="text-xs text-zinc-500">{weaponBreakdown.length} weapon{weaponBreakdown.length !== 1 ? 's' : ''}</span>
           </div>
           
-          <div className="p-4">
-            {breakdownMode === 'unit' && unitBreakdown.length > 0 && (
-              <div className="space-y-4">
-                {unitBreakdown.map((ub) => {
-                  const color = PROFILE_COLORS[ub.unitIndex % PROFILE_COLORS.length];
-                  const dmgPct = analysis.totalDamage > 0 ? (ub.damage / analysis.totalDamage) * 100 : 0;
-                  return (
-                    <div key={ub.unit.id} className="border-l-2 pl-3" style={{ borderColor: color.bg }}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-semibold text-white">{ub.unit.name}</span>
-                        <span className="text-xs text-zinc-400 font-mono">{fmt(dmgPct, 0)}%</span>
-                      </div>
-                      <div className="text-xs text-zinc-400 mb-1.5 font-mono">
-                        <span className="text-zinc-300">{fmt(ub.attacks, 0)}</span> atk → 
-                        <span className="text-blue-400"> {fmt(ub.hits, 1)}</span> hits → 
-                        <span className="text-green-400"> {fmt(ub.wounds, 1)}</span> wnd → 
-                        <span className="text-purple-400"> {fmt(ub.unsaved, 1)}</span> unsv
-                      </div>
-                      <div className="text-[10px] text-zinc-500 mb-2">
-                        <span className={ub.hitRate >= 0.5 ? 'text-green-400' : ub.hitRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}>{pct(ub.hitRate)}</span> hit · 
-                        <span className={ub.woundRate >= 0.5 ? 'text-green-400' : ub.woundRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(ub.woundRate)}</span> wnd · 
-                        <span className={ub.saveFailRate >= 0.5 ? 'text-green-400' : ub.saveFailRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(ub.saveFailRate)}</span> unsv
-                      </div>
-                      <div className="flex items-center gap-4 text-xs mb-2">
-                        <span className="text-zinc-500">Damage: <span className="text-orange-400 font-semibold font-mono">{fmt(ub.damage)}</span></span>
-                        <span className="text-zinc-500">Kills: <span className="text-orange-400 font-semibold font-mono">{fmt(ub.kills, 1)}</span></span>
-                      </div>
-                      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden mb-2">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${dmgPct}%`, backgroundColor: color.bg }} />
-                      </div>
-                      <div className="ml-2 space-y-1 border-l border-zinc-700 pl-2">
-                        {ub.profileResults.map((pr) => (
-                          <div key={pr.profile.id} className="flex items-center justify-between text-[11px]">
-                            <span className="text-zinc-500 truncate max-w-[140px]">└ {pr.profile.name}</span>
-                            <span className="text-zinc-400 font-mono">{fmt(safeVal(pr.result?.expected))} dmg</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            
-            {breakdownMode === 'weapon' && weaponBreakdown.length > 0 && (
-              <div className="space-y-4">
-                {weaponBreakdown.map((wb) => {
-                  const color = PROFILE_COLORS[wb.index % PROFILE_COLORS.length];
-                  const dmgPct = analysis.totalDamage > 0 ? (wb.damage / analysis.totalDamage) * 100 : 0;
-                  return (
-                    <div key={wb.profile?.id || wb.index} className="border-l-2 pl-3" style={{ borderColor: color.bg }}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-white">{wb.profile?.name || 'Weapon'}</span>
-                          {wb.unitInfo && <span className="text-[10px] text-zinc-500">({wb.unitInfo.unit.name})</span>}
-                        </div>
-                        <span className="text-xs text-zinc-400 font-mono">{fmt(dmgPct, 0)}%</span>
-                      </div>
-                      <div className="text-xs text-zinc-400 mb-1.5 font-mono">
-                        <span className="text-zinc-300">{fmt(wb.attacks, 0)}</span> atk → 
-                        <span className="text-blue-400"> {fmt(wb.hits, 1)}</span> hits → 
-                        <span className="text-green-400"> {fmt(wb.wounds, 1)}</span> wnd → 
-                        <span className="text-purple-400"> {fmt(wb.unsaved, 1)}</span> unsv
-                      </div>
-                      <div className="text-[10px] text-zinc-500 mb-2">
-                        <span className={wb.hitRate >= 0.5 ? 'text-green-400' : wb.hitRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}>{pct(wb.hitRate)}</span> hit · 
-                        <span className={wb.woundRate >= 0.5 ? 'text-green-400' : wb.woundRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(wb.woundRate)}</span> wnd · 
-                        <span className={wb.saveFailRate >= 0.5 ? 'text-green-400' : wb.saveFailRate >= 0.33 ? 'text-yellow-400' : 'text-red-400'}> {pct(wb.saveFailRate)}</span> unsv
-                      </div>
-                      <div className="flex items-center gap-4 text-xs mb-2">
-                        <span className="text-zinc-500">Damage: <span className="text-orange-400 font-semibold font-mono">{fmt(wb.damage)}</span></span>
-                        <span className="text-zinc-500">Kills: <span className="text-orange-400 font-semibold font-mono">{fmt(wb.kills, 1)}</span></span>
-                      </div>
-                      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all" style={{ width: `${dmgPct}%`, backgroundColor: color.bg }} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            
-            {((breakdownMode === 'unit' && unitBreakdown.length === 0) || (breakdownMode === 'weapon' && weaponBreakdown.length === 0)) && (
-              <div className="text-center py-6 text-zinc-500 text-sm">
-                No {breakdownMode === 'unit' ? 'units' : 'weapons'} to display
-              </div>
-            )}
-          </div>
+          {weaponBreakdown.length > 0 ? (
+            <div className="space-y-1">
+              {weaponBreakdown.map((wb) => (
+                <WeaponBar
+                  key={wb.profile.id}
+                  name={wb.profile.name}
+                  damage={wb.damage}
+                  totalDamage={analysis.totalDamage}
+                  color={PROFILE_COLORS[wb.index % PROFILE_COLORS.length].bg}
+                  unitName={hasMultipleUnits ? wb.unitName : null}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-4 text-zinc-500 text-sm">
+              No weapons configured
+            </div>
+          )}
         </div>
+        
+        {/* Unit Breakdown - Only shown with multiple units */}
+        {hasMultipleUnits && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-white">By Unit</h3>
+              <span className="text-xs text-zinc-500">{units.length} units</span>
+            </div>
+            
+            <div className="space-y-3">
+              {unitBreakdown.map((ub) => (
+                <UnitBreakdownCard
+                  key={ub.unit.id}
+                  unit={ub.unit}
+                  unitIndex={ub.unitIndex}
+                  damage={ub.damage}
+                  kills={ub.kills}
+                  totalDamage={analysis.totalDamage}
+                  profileResults={ub.profileResults}
+                  isExpanded={expandedUnits[ub.unit.id]}
+                  onToggle={() => toggleUnitExpanded(ub.unit.id)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

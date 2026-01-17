@@ -4,14 +4,15 @@ import { UnitList } from './components/units';
 import { DamageAnalysisTab, TargetUnitTab } from './components/tabs';
 
 function Warhammer40KDamageCalculator() {
-  const [activeTab, setActiveTab] = useState('analysis');
+  const [activeTab, setActiveTab] = useState('target'); // Start on Target tab - more useful with no weapons
   const { 
     units, 
-    addUnit, 
+    addUnitWithData,  // NEW: primary way to add units
     updateUnit, 
     removeUnit, 
     duplicateUnit,
     addProfile, 
+    setUnitProfiles,
     updateProfile, 
     removeProfile,
     allProfiles,
@@ -47,11 +48,12 @@ function Warhammer40KDamageCalculator() {
         <section className="mb-8">
           <UnitList
             units={units}
-            onAddUnit={addUnit}
+            onAddUnitWithData={addUnitWithData}
             onUpdateUnit={updateUnit}
             onRemoveUnit={removeUnit}
             onDuplicateUnit={duplicateUnit}
             onAddProfile={addProfile}
+            onSetProfiles={setUnitProfiles}
             onUpdateProfile={updateProfile}
             onRemoveProfile={removeProfile}
           />
@@ -59,14 +61,14 @@ function Warhammer40KDamageCalculator() {
         
         {/* Tab Navigation */}
         <div className="flex gap-1 border-b border-zinc-800 mb-6">
-          <TabButton active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} icon={<AnalysisIcon />} label="Damage Analysis" />
           <TabButton active={activeTab === 'target'} onClick={() => setActiveTab('target')} icon={<TargetIcon />} label="Target Unit" />
+          <TabButton active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} icon={<AnalysisIcon />} label="Damage Analysis" />
         </div>
         
         {/* Tab Content */}
         <main>
-          {activeTab === 'analysis' && <DamageAnalysisTab profiles={allProfiles} units={units} />}
           {activeTab === 'target' && <TargetUnitTab profiles={allProfiles} units={units} />}
+          {activeTab === 'analysis' && <DamageAnalysisTab profiles={allProfiles} units={units} />}
         </main>
         
         {/* Footer */}
