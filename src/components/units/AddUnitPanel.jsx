@@ -98,97 +98,13 @@ function AddUnitPanel({ onUnitAdd }) {
     setSelectedIndex(0);
   }, [query, searchIndex]);
 
-  // Parse weapon keywords into ability flags
-  const parseWeaponKeywords = (keywordStr) => {
-    if (!keywordStr) return {};
-    const kw = keywordStr.toLowerCase();
-    const abilities = {};
-    
-    if (kw.includes('lethal hits')) abilities.lethalHits = true;
-    if (kw.includes('devastating wounds')) abilities.devastatingWounds = true;
-    if (kw.includes('torrent')) abilities.torrent = true;
-    if (kw.includes('lance')) abilities.lance = true;
-    if (kw.includes('heavy')) abilities.heavy = true;
-    if (kw.includes('twin-linked')) abilities.rerollWounds = 'all';
-    if (kw.includes('ignores cover')) abilities.ignoresCover = true;
-    if (kw.includes('blast')) abilities.blast = true;
-    
-    const sustainedMatch = kw.match(/sustained hits\s*(\d+)?/);
-    if (sustainedMatch) abilities.sustainedHits = parseInt(sustainedMatch[1]) || 1;
-    
-    const meltaMatch = kw.match(/melta\s*(\d+)?/);
-    if (meltaMatch) abilities.melta = parseInt(meltaMatch[1]) || 2;
-    
-    const rapidMatch = kw.match(/rapid fire\s*(\d+)?/);
-    if (rapidMatch) abilities.rapidFire = parseInt(rapidMatch[1]) || 1;
-    
-    const antiMatch = kw.match(/anti-(\w+)\s*(\d+)\+/);
-    if (antiMatch) {
-      abilities.antiKeyword = { keyword: antiMatch[1].toUpperCase(), value: parseInt(antiMatch[2]) };
-    }
-    
-    return abilities;
-  };
-
-  // Parse weapon stat values
-  const parseWeaponStat = (value) => {
-    if (!value || value === '-' || value === 'N/A') return 1;
-    const str = String(value).trim();
-    if (/^\d+$/.test(str)) return parseInt(str);
-    return str; // Return dice notation as-is (e.g., "D6", "2D6")
-  };
-
-  const parseSkill = (value) => {
-    if (!value) return 4;
-    const match = String(value).match(/(\d+)/);
-    return match ? parseInt(match[1]) : 4;
-  };
-
-  const parseAP = (value) => {
-    if (!value || value === '-' || value === '0') return 0;
-    const match = String(value).match(/-?(\d+)/);
-    return match ? parseInt(match[1]) : 0;
-  };
-
-  // Select a unit and add it with all weapons
+  // Select a unit and add it (without weapons - user adds what they want)
   const selectUnit = (unit) => {
     const fullUnit = fullUnits[unit.id];
 
-    // Convert weapons to profile format
-    const profiles = [];
-    
-    const rangedWeapons = fullUnit?.weapons?.ranged || [];
-    const meleeWeapons = fullUnit?.weapons?.melee || [];
-
-    for (const w of rangedWeapons) {
-      profiles.push({
-        name: w.name,
-        attacks: parseWeaponStat(w.a),
-        bs: parseSkill(w.bs),
-        strength: parseWeaponStat(w.s),
-        ap: parseAP(w.ap),
-        damage: parseWeaponStat(w.d),
-        modelCount: 1,
-        ...parseWeaponKeywords(w.keywords),
-      });
-    }
-
-    for (const w of meleeWeapons) {
-      profiles.push({
-        name: w.name,
-        attacks: parseWeaponStat(w.a),
-        bs: parseSkill(w.ws), // Melee uses WS
-        strength: parseWeaponStat(w.s),
-        ap: parseAP(w.ap),
-        damage: parseWeaponStat(w.d),
-        modelCount: 1,
-        ...parseWeaponKeywords(w.keywords),
-      });
-    }
-
     onUnitAdd({
-      name: fullUnit.name,
-      profiles,
+      name: fullUnit?.name || unit.name,
+      profiles: [], // Start empty - user adds weapons via WeaponFinder
     });
 
     setQuery('');

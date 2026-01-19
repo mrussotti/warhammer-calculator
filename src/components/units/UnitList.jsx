@@ -15,11 +15,22 @@ function UnitList({
   // Calculate global profile index for consistent coloring
   let globalProfileIndex = 0;
   
-  const totalModels = units.reduce((sum, u) => {
-    return sum + u.profiles.reduce((pSum, p) => pSum + (p.modelCount || 1), 0);
+  // Only count active units and profiles
+  const activeUnits = units.filter(u => u.active !== false);
+  const totalModels = activeUnits.reduce((sum, u) => {
+    return sum + u.profiles.filter(p => p.active !== false).reduce((pSum, p) => pSum + (p.modelCount || 1), 0);
   }, 0);
   
   const totalWeapons = units.reduce((sum, u) => sum + u.profiles.length, 0);
+  const activeWeapons = activeUnits.reduce((sum, u) => sum + u.profiles.filter(p => p.active !== false).length, 0);
+  
+  const unitsSummary = activeUnits.length === units.length 
+    ? `${units.length} unit${units.length !== 1 ? 's' : ''}`
+    : `${activeUnits.length}/${units.length} units`;
+  
+  const weaponsSummary = activeWeapons === totalWeapons
+    ? `${totalWeapons} weapon${totalWeapons !== 1 ? 's' : ''}`
+    : `${activeWeapons}/${totalWeapons} weapons`;
   
   return (
     <div>
@@ -30,7 +41,7 @@ function UnitList({
           <p className="text-xs text-zinc-500">
             {units.length === 0 
               ? 'Add units to get started'
-              : `${units.length} unit${units.length !== 1 ? 's' : ''} • ${totalModels} model${totalModels !== 1 ? 's' : ''} • ${totalWeapons} weapon${totalWeapons !== 1 ? 's' : ''}`
+              : `${unitsSummary} • ${totalModels} model${totalModels !== 1 ? 's' : ''} • ${weaponsSummary}`
             }
           </p>
         </div>

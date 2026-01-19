@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { calculateCombinedDamage, calculateDamage, getWoundRollNeeded } from '../../utils/damageCalculations';
-import { TARGET_PRESETS, DEFAULT_TARGET, UNIT_KEYWORDS, PROFILE_COLORS } from '../../utils/constants';
+import { DEFAULT_TARGET, UNIT_KEYWORDS, PROFILE_COLORS } from '../../utils/constants';
 import { Stepper } from '../ui';
 import { UnitSearch } from '../units';
 
@@ -237,16 +237,6 @@ function TargetUnitTab({ profiles, units = [] }) {
     };
   }, [combinedData, target, weaponStats]);
 
-  const applyPreset = (preset) => {
-    setSelectedSearchUnit(null); // Clear search selection when using preset
-    setTarget({
-      ...DEFAULT_TARGET, toughness: preset.t, save: preset.sv, wounds: preset.w,
-      models: preset.m, name: preset.name, invuln: preset.invuln || 7,
-      fnp: preset.fnp || 7, keywords: preset.keywords || ['INFANTRY'],
-      damageReduction: preset.damageReduction || 0, damageCap: preset.damageCap || 0,
-    });
-  };
-
   const handleUnitSelect = (unit) => {
     setSelectedSearchUnit(unit);
     setTarget({
@@ -302,23 +292,6 @@ function TargetUnitTab({ profiles, units = [] }) {
             <div className="text-[10px] text-zinc-600 mt-1">Powered by Wahapedia</div>
           </div>
 
-          <div className="mb-4">
-            <label className="block text-xs text-zinc-500 mb-2">Quick Select</label>
-            <div className="flex flex-wrap gap-1.5">
-              {TARGET_PRESETS.map(preset => (
-                <button
-                  key={preset.name}
-                  onClick={() => applyPreset(preset)}
-                  className={`px-2.5 py-1 rounded text-xs transition-colors ${
-                    target.name === preset.name ? 'bg-orange-500 text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                  }`}
-                >
-                  {preset.name}
-                </button>
-              ))}
-            </div>
-          </div>
-          
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs text-zinc-500 mb-1.5">Toughness</label>

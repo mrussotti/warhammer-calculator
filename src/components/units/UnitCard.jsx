@@ -20,8 +20,10 @@ function UnitCard({
   const [isEditing, setIsEditing] = useState(false);
   const [showWeaponFinder, setShowWeaponFinder] = useState(false);
   
-  const totalModels = unit.profiles.reduce((sum, p) => sum + (p.modelCount || 1), 0);
-  const totalAttacks = unit.profiles.reduce((sum, p) => {
+  // Only count active profiles
+  const activeProfiles = unit.profiles.filter(p => p.active !== false);
+  const totalModels = activeProfiles.reduce((sum, p) => sum + (p.modelCount || 1), 0);
+  const totalAttacks = activeProfiles.reduce((sum, p) => {
     const atk = typeof p.attacks === 'number' ? p.attacks : parseFloat(p.attacks) || 1;
     return sum + atk * (p.modelCount || 1);
   }, 0);
@@ -88,14 +90,40 @@ function UnitCard({
   };
 
   return (
-    <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden">
+    <div className={`bg-zinc-900/50 border border-zinc-800 rounded-xl overflow-hidden transition-all ${unit.active !== false ? '' : 'opacity-50'}`}>
       {/* Header */}
       <div 
         className="px-4 py-3 border-b border-zinc-800"
-        style={{ borderLeft: `4px solid ${unitColor.bg}` }}
+        style={{ borderLeft: `4px solid ${unit.active !== false ? unitColor.bg : '#52525b'}` }}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 flex-1 min-w-0">
+            {/* Unit active toggle with label */}
+            <button
+              onClick={() => onUpdateUnit({ active: unit.active === false })}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded transition-all ${
+                unit.active !== false 
+                  ? 'bg-green-500/10 text-green-400' 
+                  : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
+              }`}
+              title={unit.active !== false ? 'Click to disable unit' : 'Click to enable unit'}
+            >
+              <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
+                unit.active !== false 
+                  ? 'border-green-500 bg-green-500/20' 
+                  : 'border-zinc-600'
+              }`}>
+                {unit.active !== false && (
+                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </span>
+              <span className="text-[10px] font-medium uppercase tracking-wide">
+                {unit.active !== false ? 'Active' : 'Off'}
+              </span>
+            </button>
+            
             <button 
               onClick={() => setIsCollapsed(!isCollapsed)}
               className="text-zinc-500 hover:text-zinc-300 transition-colors"
@@ -118,7 +146,7 @@ function UnitCard({
             ) : (
               <button 
                 onClick={() => setIsEditing(true)}
-                className="text-white font-semibold hover:text-orange-400 transition-colors truncate text-left"
+                className={`font-semibold hover:text-orange-400 transition-colors truncate text-left ${unit.active !== false ? 'text-white' : 'text-zinc-500'}`}
               >
                 {unit.name}
               </button>
@@ -126,7 +154,12 @@ function UnitCard({
             
             <div className="flex items-center gap-2 text-xs">
               <span className="px-2 py-0.5 bg-zinc-800 rounded text-zinc-400">{totalModels} models</span>
-              <span className="px-2 py-0.5 bg-zinc-800 rounded text-zinc-400">{unit.profiles.length} weapons</span>
+              <span className="px-2 py-0.5 bg-zinc-800 rounded text-zinc-400">
+                {activeProfiles.length === unit.profiles.length 
+                  ? `${unit.profiles.length} weapons`
+                  : `${activeProfiles.length}/${unit.profiles.length} weapons`
+                }
+              </span>
               <span className="px-2 py-0.5 bg-orange-500/20 rounded text-orange-400 font-mono">~{totalAttacks.toFixed(0)} atk</span>
             </div>
           </div>
@@ -166,7 +199,7 @@ function UnitCard({
       
       {/* Weapon Finder Panel */}
       {showWeaponFinder && (
-        <div className="border-b border-zinc-800 bg-zinc-800/30">
+        <div className="border-b border-zinc-800 bg-zinc-800/30 animate-in fade-in slide-in-from-top-2 duration-200">
           <WeaponFinder
             unitName={unit.name}
             onWeaponAdd={handleWeaponAdd}
