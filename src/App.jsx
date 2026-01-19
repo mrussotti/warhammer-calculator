@@ -1,11 +1,22 @@
 import { useState } from 'react';
-import { useProfiles } from './hooks';
-import { WeaponProfileList } from './components/weapons';
+import { useUnits } from './hooks';
+import { UnitList } from './components/units';
 import { DamageAnalysisTab, TargetUnitTab } from './components/tabs';
 
 function Warhammer40KDamageCalculator() {
-  const [activeTab, setActiveTab] = useState('analysis');
-  const { profiles, addProfile, updateProfile, removeProfile } = useProfiles();
+  const [activeTab, setActiveTab] = useState('target'); // Start on Target tab - more useful with no weapons
+  const { 
+    units, 
+    addUnitWithData,  // NEW: primary way to add units
+    updateUnit, 
+    removeUnit, 
+    duplicateUnit,
+    addProfile, 
+    setUnitProfiles,
+    updateProfile, 
+    removeProfile,
+    allProfiles,
+  } = useUnits();
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 md:p-6 lg:p-8">
@@ -33,11 +44,16 @@ function Warhammer40KDamageCalculator() {
           </div>
         </header>
         
-        {/* Weapon Profiles Section */}
+        {/* Army List Section */}
         <section className="mb-8">
-          <WeaponProfileList
-            profiles={profiles}
+          <UnitList
+            units={units}
+            onAddUnitWithData={addUnitWithData}
+            onUpdateUnit={updateUnit}
+            onRemoveUnit={removeUnit}
+            onDuplicateUnit={duplicateUnit}
             onAddProfile={addProfile}
+            onSetProfiles={setUnitProfiles}
             onUpdateProfile={updateProfile}
             onRemoveProfile={removeProfile}
           />
@@ -45,14 +61,14 @@ function Warhammer40KDamageCalculator() {
         
         {/* Tab Navigation */}
         <div className="flex gap-1 border-b border-zinc-800 mb-6">
-          <TabButton active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} icon={<AnalysisIcon />} label="Damage Analysis" />
           <TabButton active={activeTab === 'target'} onClick={() => setActiveTab('target')} icon={<TargetIcon />} label="Target Unit" />
+          <TabButton active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} icon={<AnalysisIcon />} label="Damage Analysis" />
         </div>
         
         {/* Tab Content */}
         <main>
-          {activeTab === 'analysis' && <DamageAnalysisTab profiles={profiles} />}
-          {activeTab === 'target' && <TargetUnitTab profiles={profiles} />}
+          {activeTab === 'target' && <TargetUnitTab profiles={allProfiles} units={units} />}
+          {activeTab === 'analysis' && <DamageAnalysisTab profiles={allProfiles} units={units} />}
         </main>
         
         {/* Footer */}

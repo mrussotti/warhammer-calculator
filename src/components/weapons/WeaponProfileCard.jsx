@@ -60,29 +60,56 @@ function WeaponProfileCard({ profile, index, color, onUpdate, onRemove, canRemov
   const abilitySummary = [profile.torrent && 'Torrent', profile.heavy && 'Heavy', profile.hitMod > 0 && `+${profile.hitMod} Hit`, profile.hitMod < 0 && `${profile.hitMod} Hit`, profile.rerollHits === 'ones' && 'RR1 Hit', profile.rerollHits === 'all' && 'RR Hit', profile.critHitOn < 6 && `Crit ${profile.critHitOn}+`, profile.lance && 'Lance', profile.woundMod > 0 && `+${profile.woundMod} Wnd`, profile.woundMod < 0 && `${profile.woundMod} Wnd`, profile.twinLinked && 'Twin', profile.rerollWounds === 'ones' && 'RR1 Wnd', profile.rerollWounds === 'all' && !profile.twinLinked && 'RR Wnd', profile.critWoundOn < 6 && `CritW ${profile.critWoundOn}+`, profile.sustainedHits > 0 && `Sust${profile.sustainedHits}`, profile.lethalHits && 'Lethal', profile.devastatingWounds && 'DevW', profile.antiKeyword?.keyword && `Anti-${profile.antiKeyword.keyword.slice(0,3)}`, profile.melta > 0 && `Melta${profile.melta}`, profile.rapidFire > 0 && `RF${profile.rapidFire}`, profile.ignoresCover && 'IgnCov', profile.blast && 'Blast'].filter(Boolean).join(' · ');
   
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden relative transition-all hover:border-zinc-700 group">
-      <div className="absolute top-0 left-0 w-1 h-full" style={{ background: color.bg }} />
+    <div className={`bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden relative transition-all group ${profile.active !== false ? 'hover:border-zinc-700' : 'opacity-40 hover:opacity-60'}`}>
+      <div className={`absolute top-0 left-0 w-1 h-full transition-opacity ${profile.active !== false ? '' : 'opacity-30'}`} style={{ background: color.bg }} />
       
       <div className="px-4 pl-5 py-3 border-b border-zinc-800">
-        <div className="flex items-start justify-between gap-2">
-          <input type="text" value={profile.name} onChange={(e) => onUpdate({ ...profile, name: e.target.value })} className="bg-transparent text-white font-semibold text-base focus:outline-none border-b border-transparent focus:border-zinc-600 w-full transition-colors" placeholder="Weapon name" />
+        <div className="flex items-center gap-3">
+          {/* Active toggle with label */}
+          <button
+            onClick={() => onUpdate({ ...profile, active: profile.active === false })}
+            className={`flex-shrink-0 flex items-center gap-1.5 px-2 py-1 rounded transition-all ${
+              profile.active !== false 
+                ? 'bg-green-500/10 text-green-400' 
+                : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
+            }`}
+            title={profile.active !== false ? 'Click to disable' : 'Click to enable'}
+          >
+            <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
+              profile.active !== false 
+                ? 'border-green-500 bg-green-500/20' 
+                : 'border-zinc-600'
+            }`}>
+              {profile.active !== false && (
+                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </span>
+            <span className="text-[10px] font-medium uppercase tracking-wide">
+              {profile.active !== false ? 'Active' : 'Inactive'}
+            </span>
+          </button>
+          <input type="text" value={profile.name} onChange={(e) => onUpdate({ ...profile, name: e.target.value })} className={`flex-1 bg-transparent font-semibold text-base focus:outline-none border-b border-transparent focus:border-zinc-600 transition-colors ${profile.active !== false ? 'text-white' : 'text-zinc-500'}`} placeholder="Weapon name" />
           {canRemove && <button onClick={onRemove} className="text-zinc-600 hover:text-red-400 p-1 transition-colors opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>}
         </div>
       </div>
       
       <div className="p-4 pl-5 pr-6 space-y-4">
-        <div>
-          <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">Attacks</label>
-          <div className="flex gap-3 items-center">
-            <div className="flex-1 flex flex-wrap gap-1.5">
+        <div className="flex gap-4">
+          <div className="flex-1">
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">Attacks per model</label>
+            <div className="flex flex-wrap gap-1.5">
               {['1', '2', '3', '4', '5', 'D3', 'D6'].map(preset => <button key={preset} onClick={() => onUpdate({ ...profile, attacks: preset })} className={`px-2 py-1 rounded font-mono text-xs font-medium transition-all border ${String(profile.attacks) === preset ? 'bg-orange-500/15 border-orange-500/50 text-orange-400' : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:border-zinc-600 hover:text-zinc-400'}`}>{preset}</button>)}
               <input type="text" value={profile.attacks} onChange={(e) => onUpdate({ ...profile, attacks: e.target.value })} className="px-2 py-1 bg-zinc-950 rounded text-white text-xs font-mono border border-zinc-700 focus:border-orange-500 focus:outline-none w-14 text-center" placeholder="2D6" />
             </div>
-            <span className="text-zinc-600 text-lg font-light">×</span>
+          </div>
+          <div className="flex-shrink-0">
+            <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5"># of models</label>
             <Stepper value={profile.modelCount || 1} onChange={(v) => onUpdate({ ...profile, modelCount: v })} min={1} max={100} small />
           </div>
-          <div className="text-[10px] text-zinc-500 mt-1 font-mono">{attackStats.variance > 0 ? `≈ ${(attackStats.mean * (profile.modelCount || 1)).toFixed(1)} avg (${attackStats.min * (profile.modelCount || 1)}–${attackStats.max * (profile.modelCount || 1)})` : `= ${attackStats.mean * (profile.modelCount || 1)} attacks`}</div>
         </div>
+        <div className="text-[10px] text-zinc-500 font-mono">{attackStats.variance > 0 ? `≈ ${(attackStats.mean * (profile.modelCount || 1)).toFixed(1)} attacks total (${attackStats.min * (profile.modelCount || 1)}–${attackStats.max * (profile.modelCount || 1)})` : `= ${attackStats.mean * (profile.modelCount || 1)} attacks total`}</div>
         
         <div>
           <label className="block text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">BS / WS</label>
