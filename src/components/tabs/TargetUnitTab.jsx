@@ -76,6 +76,113 @@ function WeaponBar({ name, damage, totalDamage, color, unitName }) {
   );
 }
 
+// Segmented bar showing weapon contributions by color, with per-weapon loss visualization
+function SegmentedBar({ breakdown, valueKey, maxValue, profiles, prevValueKey = null, stepName = '' }) {
+  const [hoveredSegment, setHoveredSegment] = useState(null);
+  const [mousePos, setMousePos] = useState({ x: 0 });
+  
+  // Build segments with success values and loss values per weapon
+  const segments = breakdown
+    .map((b) => {
+      const originalIndex = profiles ? profiles.findIndex(p => p.id === b.profile.id) : -1;
+      const colorIndex = originalIndex >= 0 ? originalIndex : 0;
+      
+      const successValue = safeVal(b.result?.[valueKey]);
+      // Calculate loss: difference between previous step and this step
+      const prevValue = prevValueKey ? safeVal(b.result?.[prevValueKey]) : successValue;
+      const lossValue = Math.max(0, prevValue - successValue);
+      
+      return {
+        successValue,
+        lossValue,
+        color: PROFILE_COLORS[colorIndex % PROFILE_COLORS.length].bg,
+        name: b.profile.name,
+      };
+    })
+    .filter(s => s.successValue > 0 || s.lossValue > 0);
+  
+  const totalSuccess = segments.reduce((sum, s) => sum + s.successValue, 0);
+  const totalLoss = segments.reduce((sum, s) => sum + s.lossValue, 0);
+  const totalBar = totalSuccess + totalLoss;
+  const barWidth = maxValue > 0 ? (totalBar / maxValue) * 100 : 0;
+
+  const handleMouseMove = (e, segmentId) => {
+    const rect = e.currentTarget.closest('.segmented-bar-container').getBoundingClientRect();
+    setMousePos({ x: e.clientX - rect.left });
+    setHoveredSegment(segmentId);
+  };
+  
+  return (
+    <div className="segmented-bar-container flex-1 h-7 relative">
+      {/* Floating tooltip that follows mouse */}
+      {hoveredSegment && (
+        <div 
+          className="absolute -top-9 bg-zinc-900 border border-zinc-600 rounded px-2.5 py-1.5 text-xs text-white whitespace-nowrap z-50 shadow-xl pointer-events-none"
+          style={{ left: `${mousePos.x}px`, transform: 'translateX(-50%)' }}
+        >
+          {(() => {
+            const [type, idxStr] = hoveredSegment.split('-');
+            const idx = parseInt(idxStr);
+            const seg = segments[idx];
+            if (!seg) return null;
+            if (type === 'success') {
+              return <><span className="font-medium">{seg.name}:</span> <span className="font-bold">{fmt(seg.successValue)}</span> {stepName}</>;
+            } else {
+              return <><span className="font-medium">{seg.name}:</span> <span className="font-bold text-red-400">−{fmt(seg.lossValue)}</span> lost</>;
+            }
+          })()}
+          {/* Tooltip arrow */}
+          <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-zinc-900 border-r border-b border-zinc-600 rotate-45" />
+        </div>
+      )}
+      
+      {/* The actual bar */}
+      <div className="h-full bg-zinc-800 rounded overflow-hidden relative">
+        <div className="h-full flex" style={{ width: `${barWidth}%` }}>
+          {/* Success segments first */}
+          {segments.map((seg, idx) => {
+            if (seg.successValue <= 0) return null;
+            const segWidth = totalBar > 0 ? (seg.successValue / totalBar) * 100 : 0;
+            return (
+              <div
+                key={`success-${idx}`}
+                className="h-full relative overflow-hidden first:rounded-l cursor-default hover:brightness-110 transition-all"
+                style={{ 
+                  width: `${segWidth}%`, 
+                  backgroundColor: seg.color,
+                }}
+                onMouseMove={(e) => handleMouseMove(e, `success-${idx}`)}
+                onMouseLeave={() => setHoveredSegment(null)}
+              />
+            );
+          })}
+          {/* Loss segments after (faded with stripes) */}
+          {segments.map((seg, idx) => {
+            if (seg.lossValue <= 0) return null;
+            const segWidth = totalBar > 0 ? (seg.lossValue / totalBar) * 100 : 0;
+            return (
+              <div
+                key={`loss-${idx}`}
+                className="h-full relative overflow-hidden last:rounded-r cursor-default hover:opacity-50 transition-all"
+                style={{ 
+                  width: `${segWidth}%`,
+                  backgroundColor: seg.color,
+                  opacity: 0.35,
+                  backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.4) 2px, rgba(0,0,0,0.4) 4px)',
+                }}
+                onMouseMove={(e) => handleMouseMove(e, `loss-${idx}`)}
+                onMouseLeave={() => setHoveredSegment(null)}
+              />
+            );
+          })}
+        </div>
+        
+        {/* Total label on the right side */}
+      </div>
+    </div>
+  );
+}
+
 // Unit breakdown card for multi-unit view
 function UnitBreakdownCard({ unit, unitIndex, damage, kills, totalDamage, profileResults, isExpanded, onToggle }) {
   const color = PROFILE_COLORS[unitIndex % PROFILE_COLORS.length];
@@ -135,12 +242,37 @@ function TargetUnitTab({ profiles, units = [] }) {
   const [expandedUnits, setExpandedUnits] = useState({});
   const [selectedSearchUnit, setSelectedSearchUnit] = useState(null);
   
+  // Filter to only active units and their active profiles
+  const activeUnits = useMemo(() => {
+    return units
+      .filter(unit => unit.active !== false)
+      .map(unit => ({
+        ...unit,
+        profiles: unit.profiles.filter(p => p.active !== false)
+      }))
+      .filter(unit => unit.profiles.length > 0);
+  }, [units]);
+  
+  // Get all active profiles (from active units only)
+  const activeProfiles = useMemo(() => {
+    if (!profiles || profiles.length === 0) return [];
+    
+    // Build a set of profile IDs that belong to active units
+    const activeProfileIds = new Set();
+    activeUnits.forEach(unit => {
+      unit.profiles.forEach(p => activeProfileIds.add(p.id));
+    });
+    
+    // Filter profiles: must be active AND belong to an active unit
+    return profiles.filter(p => p.active !== false && activeProfileIds.has(p.id));
+  }, [profiles, activeUnits]);
+  
   // Determine if we have multiple units (to show unit breakdown)
-  const hasMultipleUnits = units.length > 1;
+  const hasMultipleUnits = activeUnits.length > 1;
   
   const weaponStats = useMemo(() => {
-    if (!profiles || profiles.length === 0) return { bs: 3, strength: 4, ap: 0 };
-    const total = profiles.reduce((acc, p) => {
+    if (!activeProfiles || activeProfiles.length === 0) return { bs: 3, strength: 4, ap: 0 };
+    const total = activeProfiles.reduce((acc, p) => {
       const atk = (typeof p.attacks === 'number' ? p.attacks : parseFloat(p.attacks) || 1) * (p.modelCount || 1);
       return {
         attacks: acc.attacks + atk,
@@ -154,15 +286,15 @@ function TargetUnitTab({ profiles, units = [] }) {
       strength: Math.round(total.strength / total.attacks),
       ap: Math.round(total.ap / total.attacks),
     };
-  }, [profiles]);
+  }, [activeProfiles]);
   
-  const combinedData = useMemo(() => calculateCombinedDamage(profiles, target), [profiles, target]);
+  const combinedData = useMemo(() => calculateCombinedDamage(activeProfiles, target), [activeProfiles, target]);
   
   // Unit breakdown for multi-unit view
   const unitBreakdown = useMemo(() => {
-    if (!units || units.length === 0) return [];
+    if (!activeUnits || activeUnits.length === 0) return [];
     
-    return units.map((unit, unitIndex) => {
+    return activeUnits.map((unit, unitIndex) => {
       const profileResults = unit.profiles.map(profile => ({
         profile,
         result: calculateDamage(profile, target)
@@ -173,21 +305,21 @@ function TargetUnitTab({ profiles, units = [] }) {
       
       return { unit, unitIndex, damage, kills, profileResults };
     });
-  }, [units, target]);
+  }, [activeUnits, target]);
   
   // Weapon breakdown - always calculate for weapon contribution view
   const weaponBreakdown = useMemo(() => {
-    if (!profiles || profiles.length === 0) return [];
+    if (!activeProfiles || activeProfiles.length === 0) return [];
     
     // Map weapons to their parent units
     const weaponToUnit = {};
-    units.forEach((unit) => {
+    activeUnits.forEach((unit) => {
       unit.profiles.forEach(profile => {
         weaponToUnit[profile.id] = unit.name;
       });
     });
     
-    return profiles.map((profile, index) => {
+    return activeProfiles.map((profile, index) => {
       const result = calculateDamage(profile, target);
       return {
         profile,
@@ -197,7 +329,7 @@ function TargetUnitTab({ profiles, units = [] }) {
         kills: safeVal(result?.expectedKills),
       };
     }).sort((a, b) => b.damage - a.damage); // Sort by damage descending
-  }, [profiles, units, target]);
+  }, [activeProfiles, activeUnits, target]);
   
   const analysis = useMemo(() => {
     const { total, breakdown } = combinedData;
@@ -478,35 +610,46 @@ function TargetUnitTab({ profiles, units = [] }) {
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
           <h3 className="text-sm font-semibold text-white mb-4">Where Your Attacks Go</h3>
           
-          <div className="space-y-1">
+          {/* Header row */}
+          <div className="flex items-center gap-3 mb-2 text-[10px] text-zinc-500 uppercase tracking-wider">
+            <div className="w-16" />
+            <div className="flex-1" />
+            <div className="w-16 text-right">Total</div>
+            <div className="w-14 text-right">Rate</div>
+          </div>
+          
+          <div className="space-y-3">
             {/* Attacks */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 relative">
               <div className="w-16 text-xs text-zinc-400 text-right">Attacks</div>
-              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
-                <div className="h-full bg-zinc-500 rounded" style={{ width: '100%' }} />
-                <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">{fmt(analysis.totalAttacks, 0)}</span>
+              <SegmentedBar 
+                breakdown={analysis.breakdown} 
+                valueKey="attacks" 
+                maxValue={analysis.totalAttacks}
+                profiles={activeProfiles}
+                stepName="attacks"
+              />
+              <div className="w-16 text-right">
+                <span className="text-sm font-mono font-medium text-zinc-300">{fmt(analysis.totalAttacks, 0)}</span>
               </div>
-              <div className="w-14" />
+              <div className="w-14 text-right">
+                <span className="text-xs text-zinc-500">—</span>
+              </div>
             </div>
             
-            {/* Miss loss */}
-            {analysis.lostToMisses > 0 && (
-              <div className="flex items-center gap-3">
-                <div className="w-16" />
-                <div className="flex-1 flex items-center gap-2 pl-2">
-                  <span className="text-xs text-red-400">↓ −{fmt(analysis.lostToMisses)} missed</span>
-                  <span className="text-[10px] text-zinc-500">({pct(analysis.lostToMisses / analysis.totalAttacks)} of attacks)</span>
-                </div>
-                <div className="w-14" />
-              </div>
-            )}
-            
-            {/* Hits */}
-            <div className="flex items-center gap-3">
+            {/* Hits (with misses shown per weapon) */}
+            <div className="flex items-center gap-3 relative">
               <div className="w-16 text-xs text-zinc-400 text-right">Hits</div>
-              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
-                <div className="h-full bg-blue-500 rounded" style={{ width: `${(analysis.totalHits / analysis.totalAttacks) * 100}%` }} />
-                <span className="absolute inset-0 flex items-center pl-3 text-sm font-bold text-white">{fmt(analysis.totalHits)}</span>
+              <SegmentedBar 
+                breakdown={analysis.breakdown} 
+                valueKey="expectedHits" 
+                prevValueKey="attacks"
+                maxValue={analysis.totalAttacks}
+                profiles={activeProfiles}
+                stepName="hits"
+              />
+              <div className="w-16 text-right">
+                <span className="text-sm font-mono font-medium text-zinc-300">{fmt(analysis.totalHits)}</span>
               </div>
               <div className="w-14 text-right">
                 <span className={`text-xs font-medium ${analysis.totalHits / analysis.totalAttacks >= 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
@@ -515,24 +658,19 @@ function TargetUnitTab({ profiles, units = [] }) {
               </div>
             </div>
             
-            {/* Wound fail loss */}
-            {analysis.lostToFailedWounds > 0 && (
-              <div className="flex items-center gap-3">
-                <div className="w-16" />
-                <div className="flex-1 flex items-center gap-2 pl-2">
-                  <span className="text-xs text-red-400">↓ −{fmt(analysis.lostToFailedWounds)} failed to wound</span>
-                  <span className="text-[10px] text-zinc-500">({pct(analysis.lostToFailedWounds / analysis.totalHits)} of hits)</span>
-                </div>
-                <div className="w-14" />
-              </div>
-            )}
-            
-            {/* Wounds */}
-            <div className="flex items-center gap-3">
+            {/* Wounds (with failed wounds shown per weapon) */}
+            <div className="flex items-center gap-3 relative">
               <div className="w-16 text-xs text-zinc-400 text-right">Wounds</div>
-              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
-                <div className="h-full bg-green-500 rounded" style={{ width: `${(analysis.totalWounds / analysis.totalAttacks) * 100}%` }} />
-                <span className="absolute inset-0 flex items-center pl-3 text-sm font-bold text-white">{fmt(analysis.totalWounds)}</span>
+              <SegmentedBar 
+                breakdown={analysis.breakdown} 
+                valueKey="expectedWoundsFromHits" 
+                prevValueKey="expectedHits"
+                maxValue={analysis.totalAttacks}
+                profiles={activeProfiles}
+                stepName="wounds"
+              />
+              <div className="w-16 text-right">
+                <span className="text-sm font-mono font-medium text-zinc-300">{fmt(analysis.totalWounds)}</span>
               </div>
               <div className="w-14 text-right">
                 <span className={`text-xs font-medium ${analysis.totalWounds / analysis.totalHits >= 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
@@ -541,24 +679,19 @@ function TargetUnitTab({ profiles, units = [] }) {
               </div>
             </div>
             
-            {/* Save loss */}
-            {analysis.lostToSaves > 0 && (
-              <div className="flex items-center gap-3">
-                <div className="w-16" />
-                <div className="flex-1 flex items-center gap-2 pl-2">
-                  <span className="text-xs text-red-400">↓ −{fmt(analysis.lostToSaves)} saved by armor</span>
-                  <span className="text-[10px] text-zinc-500">({pct(analysis.lostToSaves / analysis.totalWounds)} of wounds)</span>
-                </div>
-                <div className="w-14" />
-              </div>
-            )}
-            
-            {/* Unsaved */}
-            <div className="flex items-center gap-3">
+            {/* Unsaved (with saves shown per weapon) */}
+            <div className="flex items-center gap-3 relative">
               <div className="w-16 text-xs text-zinc-400 text-right">Unsaved</div>
-              <div className="flex-1 h-7 bg-zinc-800 rounded overflow-hidden relative">
-                <div className="h-full bg-purple-500 rounded" style={{ width: `${(analysis.totalUnsaved / analysis.totalAttacks) * 100}%` }} />
-                <span className="absolute inset-0 flex items-center pl-3 text-sm font-bold text-white">{fmt(analysis.totalUnsaved)}</span>
+              <SegmentedBar 
+                breakdown={analysis.breakdown} 
+                valueKey="expectedUnsaved" 
+                prevValueKey="expectedWoundsFromHits"
+                maxValue={analysis.totalAttacks}
+                profiles={activeProfiles}
+                stepName="unsaved"
+              />
+              <div className="w-16 text-right">
+                <span className="text-sm font-mono font-medium text-zinc-300">{fmt(analysis.totalUnsaved)}</span>
               </div>
               <div className="w-14 text-right">
                 <span className={`text-xs font-medium ${analysis.totalUnsaved / analysis.totalWounds >= 0.5 ? 'text-green-400' : 'text-yellow-400'}`}>
@@ -636,7 +769,7 @@ function TargetUnitTab({ profiles, units = [] }) {
           <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-white">By Unit</h3>
-              <span className="text-xs text-zinc-500">{units.length} units</span>
+              <span className="text-xs text-zinc-500">{activeUnits.length} units</span>
             </div>
             
             <div className="space-y-3">
