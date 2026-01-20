@@ -340,6 +340,14 @@ function TargetUnitTab({ profiles, units = [] }) {
     const totalUnsaved = breakdown.reduce((sum, b) => sum + safeVal(b.result?.expectedUnsaved), 0);
     const totalDamage = safeVal(total.expected);
     
+    // Calculate FNP impact - FNP is applied after unsaved wounds
+    // FNP pass rate: 5+ means 4/6 get through, 6+ means 5/6 get through
+    const fnpActive = target.fnp < 7;
+    const fnpPassRate = fnpActive ? (target.fnp - 1) / 6 : 1;
+    // Damage before FNP = totalDamage / fnpPassRate (reverse engineer it)
+    const totalDamageBeforeFnp = fnpActive && fnpPassRate > 0 ? totalDamage / fnpPassRate : totalDamage;
+    const lostToFnp = totalDamageBeforeFnp - totalDamage;
+    
     const lostToMisses = totalAttacks - totalHits;
     const lostToFailedWounds = totalHits - totalWounds;
     const lostToSaves = totalWounds - totalUnsaved;
@@ -349,20 +357,39 @@ function TargetUnitTab({ profiles, units = [] }) {
       { name: 'Failed Wounds', value: lostToFailedWounds, suggestion: 'Need higher Strength', detail: `${pct(lostToFailedWounds / totalHits)} of hits failed to wound` },
       { name: 'Armor Saves', value: lostToSaves, suggestion: 'Need more AP', detail: `${pct(lostToSaves / totalWounds)} of wounds saved` },
     ];
+    if (fnpActive && lostToFnp > 0) {
+      losses.push({ name: 'Feel No Pain', value: lostToFnp, suggestion: `Target has ${target.fnp}+ FNP`, detail: `${pct(1 - fnpPassRate)} of damage ignored` });
+    }
     const biggestLoss = losses.reduce((max, l) => l.value > max.value ? l : max, losses[0]);
     
     const stdDev = safeVal(total.stdDev);
     const expectedKills = safeVal(total.expectedKills);
     const woundsPerModel = target.wounds || 1;
     
-    const probKillAtLeast1 = totalDamage > 0 ? Math.min(0.99, 1 - normalCDF(woundsPerModel, totalDamage, stdDev)) : 0;
-    const probWipe = target.models > 0 ? Math.max(0.01, 1 - normalCDF(target.models * woundsPerModel, totalDamage, stdDev)) : 0;
+    // Probability calculations using normal distribution approximation
+    let probKillAtLeast1 = 0;
+    let probWipe = 0;
+    
+    if (totalDamage > 0 && stdDev > 0) {
+      probKillAtLeast1 = 1 - normalCDF(woundsPerModel, totalDamage, stdDev);
+      probWipe = 1 - normalCDF(target.models * woundsPerModel, totalDamage, stdDev);
+      // Ensure logical consistency: can't wipe without killing at least 1
+      probWipe = Math.min(probWipe, probKillAtLeast1);
+    } else if (totalDamage > 0) {
+      probKillAtLeast1 = totalDamage >= woundsPerModel ? 1 : 0;
+      probWipe = totalDamage >= target.models * woundsPerModel ? 1 : 0;
+    }
+    
+    // Clamp to reasonable display values
+    probKillAtLeast1 = Math.max(0, Math.min(1, probKillAtLeast1));
+    probWipe = Math.max(0, Math.min(1, probWipe));
     
     const woundRoll = getWoundRollNeeded(weaponStats.strength, target.toughness);
     const effectiveSave = Math.min(7, target.save + weaponStats.ap);
     
     return {
       totalAttacks, totalHits, totalWounds, totalUnsaved, totalDamage,
+      totalDamageBeforeFnp, fnpActive, fnpPassRate, lostToFnp,
       lostToMisses, lostToFailedWounds, lostToSaves,
       biggestLoss, stdDev, expectedKills, probKillAtLeast1, probWipe,
       woundRoll, effectiveSave, breakdown,
@@ -395,12 +422,6 @@ function TargetUnitTab({ profiles, units = [] }) {
     target.minusToWound > 0, target.transhumanlike, target.damageReduction !== 0 && target.damageReduction != null,
     target.damageCap > 0, target.apReduction > 0,
   ].filter(Boolean).length;
-
-  const getSaveColor = (save) => {
-    if (save > 6) return 'text-green-400';
-    if (save >= 5) return 'text-yellow-400';
-    return 'text-red-400';
-  };
   
   const toggleUnitExpanded = (unitId) => {
     setExpandedUnits(prev => ({ ...prev, [unitId]: !prev[unitId] }));
@@ -521,44 +542,21 @@ function TargetUnitTab({ profiles, units = [] }) {
       <div className="space-y-4">
         {/* Main Result Card */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+          {/* Key results header */}
           <div className="p-4 border-b border-zinc-800">
-            <div className="flex items-start justify-between">
+            <div className="flex items-center justify-between">
               <div>
-                <div className="text-xs text-zinc-500">{target.name || 'Custom Target'}</div>
-                <div className="text-lg font-bold text-white">
-                  T{target.toughness} · {target.save <= 6 ? `${target.save}+ Sv` : 'No Sv'}
-                  {target.invuln < 7 && ` · ${target.invuln}++`}
-                </div>
-                <div className="text-xs text-zinc-500 mt-1">
-                  {target.wounds}W × {target.models} models = {target.wounds * target.models} wounds
-                </div>
+                <div className="text-2xl font-bold text-orange-400 font-mono">{fmt(analysis.totalDamage)} damage</div>
+                <div className="text-sm text-zinc-400">{fmt(analysis.expectedKills, 1)} models killed (of {target.models})</div>
               </div>
               <div className="text-right">
-                <div className="text-3xl font-bold text-orange-500 font-mono">{fmt(analysis.expectedKills, 1)}</div>
-                <div className="text-xs text-zinc-500">of {target.models} models killed</div>
+                <div className="text-3xl font-bold text-white font-mono">{pct(analysis.probKillAtLeast1)}</div>
+                <div className="text-xs text-zinc-500">to kill 1+</div>
               </div>
             </div>
           </div>
           
-          <div className="grid grid-cols-3 border-b border-zinc-800">
-            <div className="p-3 text-center border-r border-zinc-800">
-              <div className="text-xl font-bold text-blue-400 font-mono">{weaponStats.bs}+</div>
-              <div className="text-[10px] text-zinc-500 uppercase">To Hit</div>
-            </div>
-            <div className="p-3 text-center border-r border-zinc-800">
-              <div className={`text-xl font-bold font-mono ${analysis.woundRoll <= 3 ? 'text-green-400' : analysis.woundRoll >= 5 ? 'text-red-400' : 'text-yellow-400'}`}>
-                {analysis.woundRoll}+
-              </div>
-              <div className="text-[10px] text-zinc-500 uppercase">To Wound</div>
-            </div>
-            <div className="p-3 text-center">
-              <div className={`text-xl font-bold font-mono ${getSaveColor(analysis.effectiveSave)}`}>
-                {analysis.effectiveSave <= 6 ? `${analysis.effectiveSave}+` : '—'}
-              </div>
-              <div className="text-[10px] text-zinc-500 uppercase">Their Save</div>
-            </div>
-          </div>
-          
+          {/* Model visualization */}
           <div className="p-4 border-b border-zinc-800">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               {Array.from({ length: Math.min(target.models, 12) }).map((_, i) => {
@@ -586,22 +584,11 @@ function TargetUnitTab({ profiles, units = [] }) {
               {target.models > 12 && <span className="text-xs text-zinc-500 ml-1">+{target.models - 12} more</span>}
             </div>
             <div className="text-xs text-zinc-500">
-              Expected: <span className="text-orange-400 font-medium">{fmt(analysis.expectedKills, 2)} models killed</span>
+              Range: {fmt(Math.max(0, analysis.expectedKills - analysis.stdDev / target.wounds), 1)} – {fmt(analysis.expectedKills + analysis.stdDev / target.wounds, 1)} kills
               <span className="text-zinc-600 mx-2">·</span>
-              Range: {fmt(Math.max(0, analysis.expectedKills - analysis.stdDev / target.wounds), 1)} – {fmt(analysis.expectedKills + analysis.stdDev / target.wounds, 1)}
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-2 divide-x divide-zinc-800">
-            <div className="p-4 text-center">
-              <div className="text-2xl font-bold text-green-400 font-mono">{pct(analysis.probKillAtLeast1)}</div>
-              <div className="text-xs text-zinc-500">Chance to kill 1+ model</div>
-            </div>
-            <div className="p-4 text-center">
-              <div className={`text-2xl font-bold font-mono ${analysis.probWipe > 0.5 ? 'text-green-400' : analysis.probWipe > 0.15 ? 'text-yellow-400' : 'text-zinc-500'}`}>
-                {pct(analysis.probWipe)}
-              </div>
-              <div className="text-xs text-zinc-500">Chance to wipe unit</div>
+              <span className={analysis.probWipe > 0.5 ? 'text-green-400' : analysis.probWipe > 0.15 ? 'text-yellow-400' : 'text-zinc-500'}>
+                {pct(analysis.probWipe)} to wipe
+              </span>
             </div>
           </div>
         </div>
@@ -699,6 +686,43 @@ function TargetUnitTab({ profiles, units = [] }) {
                 </span>
               </div>
             </div>
+            
+            {/* FNP - Only shown when target has Feel No Pain */}
+            {analysis.fnpActive && (
+              <div className="flex items-center gap-3 relative">
+                <div className="w-16 text-xs text-zinc-400 text-right">After FNP</div>
+                <div className="flex-1 h-7 relative">
+                  {/* Simple bar showing damage after FNP */}
+                  <div className="h-full bg-zinc-800 rounded overflow-hidden">
+                    <div className="h-full flex">
+                      {/* Damage that got through */}
+                      <div 
+                        className="h-full bg-green-500"
+                        style={{ width: `${(analysis.totalDamage / analysis.totalDamageBeforeFnp) * 100}%` }}
+                        title={`${fmt(analysis.totalDamage)} damage got through`}
+                      />
+                      {/* Damage blocked by FNP */}
+                      <div 
+                        className="h-full bg-green-500/30"
+                        style={{ 
+                          width: `${(analysis.lostToFnp / analysis.totalDamageBeforeFnp) * 100}%`,
+                          backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.4) 2px, rgba(0,0,0,0.4) 4px)',
+                        }}
+                        title={`${fmt(analysis.lostToFnp)} damage blocked by ${target.fnp}+ FNP`}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="w-16 text-right">
+                  <span className="text-sm font-mono font-medium text-zinc-300">{fmt(analysis.totalDamage)}</span>
+                </div>
+                <div className="w-14 text-right">
+                  <span className={`text-xs font-medium ${analysis.fnpPassRate >= 0.5 ? 'text-yellow-400' : 'text-red-400'}`}>
+                    {pct(analysis.fnpPassRate)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Total damage result */}
