@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { useUnits } from './hooks';
 import { UnitList } from './components/units';
-import { DamageAnalysisTab, TargetUnitTab } from './components/tabs';
+import { DamageAnalysisTab, TargetUnitTab, ArmyAnalysisTab } from './components/tabs';
 
 function Warhammer40KDamageCalculator() {
-  const [activeTab, setActiveTab] = useState('target'); // Start on Target tab - more useful with no weapons
+  const [activeTab, setActiveTab] = useState('target');
   const { 
     units, 
-    addUnitWithData,  // NEW: primary way to add units
+    addUnitWithData,
     updateUnit, 
     removeUnit, 
     duplicateUnit,
@@ -44,31 +44,57 @@ function Warhammer40KDamageCalculator() {
           </div>
         </header>
         
-        {/* Army List Section */}
-        <section className="mb-8">
-          <UnitList
-            units={units}
-            onAddUnitWithData={addUnitWithData}
-            onUpdateUnit={updateUnit}
-            onRemoveUnit={removeUnit}
-            onDuplicateUnit={duplicateUnit}
-            onAddProfile={addProfile}
-            onSetProfiles={setUnitProfiles}
-            onUpdateProfile={updateProfile}
-            onRemoveProfile={removeProfile}
-          />
-        </section>
-        
-        {/* Tab Navigation */}
-        <div className="flex gap-1 border-b border-zinc-800 mb-6">
-          <TabButton active={activeTab === 'target'} onClick={() => setActiveTab('target')} icon={<TargetIcon />} label="Target Unit" />
-          <TabButton active={activeTab === 'analysis'} onClick={() => setActiveTab('analysis')} icon={<AnalysisIcon />} label="Damage Analysis" />
+        {/* Tab Navigation - Army Analysis is separate section, so we show link to it */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex gap-1 border-b border-zinc-800">
+            <TabButton 
+              active={activeTab === 'target'} 
+              onClick={() => setActiveTab('target')} 
+              icon={<TargetIcon />} 
+              label="Target Unit" 
+            />
+            <TabButton 
+              active={activeTab === 'analysis'} 
+              onClick={() => setActiveTab('analysis')} 
+              icon={<AnalysisIcon />} 
+              label="Damage Analysis" 
+            />
+            <TabButton 
+              active={activeTab === 'army'} 
+              onClick={() => setActiveTab('army')} 
+              icon={<ArmyIcon />} 
+              label="Army Analysis"
+              isNew
+            />
+          </div>
         </div>
         
         {/* Tab Content */}
         <main>
-          {activeTab === 'target' && <TargetUnitTab profiles={allProfiles} units={units} />}
-          {activeTab === 'analysis' && <DamageAnalysisTab profiles={allProfiles} units={units} />}
+          {/* Manual Army Building + Target/Analysis tabs */}
+          {(activeTab === 'target' || activeTab === 'analysis') && (
+            <>
+              <section className="mb-8">
+                <UnitList
+                  units={units}
+                  onAddUnitWithData={addUnitWithData}
+                  onUpdateUnit={updateUnit}
+                  onRemoveUnit={removeUnit}
+                  onDuplicateUnit={duplicateUnit}
+                  onAddProfile={addProfile}
+                  onSetProfiles={setUnitProfiles}
+                  onUpdateProfile={updateProfile}
+                  onRemoveProfile={removeProfile}
+                />
+              </section>
+              
+              {activeTab === 'target' && <TargetUnitTab profiles={allProfiles} units={units} />}
+              {activeTab === 'analysis' && <DamageAnalysisTab profiles={allProfiles} units={units} />}
+            </>
+          )}
+          
+          {/* Army Analysis - Separate section with its own import */}
+          {activeTab === 'army' && <ArmyAnalysisTab />}
         </main>
         
         {/* Footer */}
@@ -80,7 +106,7 @@ function Warhammer40KDamageCalculator() {
   );
 }
 
-function TabButton({ active, onClick, icon, label }) {
+function TabButton({ active, onClick, icon, label, isNew }) {
   return (
     <button
       onClick={onClick}
@@ -90,6 +116,11 @@ function TabButton({ active, onClick, icon, label }) {
     >
       <span className={active ? 'text-orange-500' : 'text-zinc-600'}>{icon}</span>
       {label}
+      {isNew && (
+        <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-bold rounded uppercase">
+          New
+        </span>
+      )}
       {active && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500 rounded-t" />}
     </button>
   );
@@ -108,6 +139,17 @@ function TargetIcon() {
   return (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+    </svg>
+  );
+}
+
+function ArmyIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 00-3-3.87" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M16 3.13a4 4 0 010 7.75" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
