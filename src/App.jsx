@@ -1,156 +1,200 @@
-import { useState } from 'react';
-import { useUnits } from './hooks';
-import { UnitList } from './components/units';
-import { DamageAnalysisTab, TargetUnitTab, ArmyAnalysisTab } from './components/tabs';
+import { useArmy } from './hooks';
+import { ArmySidebar, ToolsArea } from './components/layout';
+import { DamageAnalysisTab, TargetUnitTab } from './components/tabs';
 
+/**
+ * Warhammer 40K Damage Calculator
+ * 
+ * New architecture: Army-centric sidebar with analysis tools
+ * 
+ * Layout:
+ * ┌──────────────────┬────────────────────────────────────────────┐
+ * │ YOUR ARMY    [<] │  [Damage] [Heatmap] [Dashboard]            │
+ * │                  ├────────────────────────────────────────────┤
+ * │ "army name"      │                                            │
+ * │ 2000 pts         │  Active tool content                       │
+ * │                  │                                            │
+ * │ ☑ Unit 1         │  (Damage calc, heatmap, etc.)              │
+ * │ ☑ Unit 2         │                                            │
+ * │ ☐ Unit 3         │                                            │
+ * │                  │                                            │
+ * │ [Import]         │                                            │
+ * │ [Compose]        │                                            │
+ * └──────────────────┴────────────────────────────────────────────┘
+ */
 function Warhammer40KDamageCalculator() {
-  const [activeTab, setActiveTab] = useState('target');
-  const { 
-    units, 
-    addUnitWithData,
-    updateUnit, 
-    removeUnit, 
-    duplicateUnit,
-    addProfile, 
-    setUnitProfiles,
-    updateProfile, 
-    removeProfile,
-    allProfiles,
-  } = useUnits();
+  // Unified army state
+  const army = useArmy();
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 p-4 md:p-6 lg:p-8">
-      {/* Background glow effects */}
+    <div className="h-screen bg-zinc-950 text-zinc-100 flex overflow-hidden">
+      {/* Background effects */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
-        <div className="absolute -top-1/2 -left-1/4 w-full h-full bg-[radial-gradient(ellipse_at_center,rgba(249,115,22,0.08),transparent_70%)]" />
-        <div className="absolute -bottom-1/2 -right-1/4 w-full h-full bg-[radial-gradient(ellipse_at_center,rgba(59,130,246,0.05),transparent_70%)]" />
+        <div className="absolute -top-1/2 -left-1/4 w-full h-full bg-[radial-gradient(ellipse_at_center,rgba(249,115,22,0.06),transparent_70%)]" />
+        <div className="absolute -bottom-1/2 -right-1/4 w-full h-full bg-[radial-gradient(ellipse_at_center,rgba(59,130,246,0.04),transparent_70%)]" />
       </div>
       
-      <div className="relative max-w-[1600px] mx-auto">
-        {/* Header */}
-        <header className="mb-8">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
-              <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
-                Damage Calculator
-              </h1>
-              <p className="text-sm text-zinc-500">Warhammer 40K 10th Edition</p>
-            </div>
-          </div>
-        </header>
+      {/* Sidebar */}
+      <ArmySidebar
+        importedArmy={army.importedArmy}
+        wahapediaUnits={army.wahapediaUnits}
+        isLoadingData={army.isLoadingData}
+        sidebarCollapsed={army.sidebarCollapsed}
+        units={army.units}
+        leaders={army.leaders}
+        squads={army.squads}
+        transports={army.transports}
+        selectedUnitIds={army.selectedUnitIds}
+        attachments={army.attachments}
+        embarked={army.embarked}
+        armyStats={army.armyStats}
+        matchStats={army.matchStats}
+        importArmy={army.importArmy}
+        clearArmy={army.clearArmy}
+        toggleUnit={army.toggleUnit}
+        selectAll={army.selectAll}
+        deselectAll={army.deselectAll}
+        attachLeader={army.attachLeader}
+        embarkUnit={army.embarkUnit}
+        toggleSidebar={army.toggleSidebar}
+        getDisplayName={army.getDisplayName}
+      />
+      
+      {/* Main Content */}
+      <ToolsArea
+        DamageCalculator={TargetUnitTab}
+        DamageAnalysis={DamageAnalysisTab}
+        ArmyDashboard={ArmyDashboard}
+        importedArmy={army.importedArmy}
+        selectedProfiles={army.selectedProfiles}
+        unitsForCalculator={army.unitsForCalculator}
+        selectedUnitIds={army.selectedUnitIds}
+        armyStats={army.armyStats}
+      />
+    </div>
+  );
+}
+
+/**
+ * Placeholder Army Dashboard
+ * TODO: Implement proper dashboard with points breakdown, unit roles, etc.
+ */
+function ArmyDashboard({ army, armyStats }) {
+  if (!army || !armyStats) {
+    return (
+      <div className="text-center py-16 text-zinc-500">
+        No army loaded
+      </div>
+    );
+  }
+  
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+        <h2 className="text-2xl font-bold text-white mb-1">{armyStats.armyName}</h2>
+        <p className="text-zinc-500">{armyStats.faction}</p>
         
-        {/* Tab Navigation - Army Analysis is separate section, so we show link to it */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex gap-1 border-b border-zinc-800">
-            <TabButton 
-              active={activeTab === 'target'} 
-              onClick={() => setActiveTab('target')} 
-              icon={<TargetIcon />} 
-              label="Target Unit" 
-            />
-            <TabButton 
-              active={activeTab === 'analysis'} 
-              onClick={() => setActiveTab('analysis')} 
-              icon={<AnalysisIcon />} 
-              label="Damage Analysis" 
-            />
-            <TabButton 
-              active={activeTab === 'army'} 
-              onClick={() => setActiveTab('army')} 
-              icon={<ArmyIcon />} 
-              label="Army Analysis"
-              isNew
-            />
+        <div className="grid grid-cols-3 gap-6 mt-6">
+          <div>
+            <div className="text-3xl font-bold text-blue-400 font-mono">{armyStats.totalPoints}</div>
+            <div className="text-xs text-zinc-500 mt-1">Total Points</div>
+          </div>
+          <div>
+            <div className="text-3xl font-bold text-green-400 font-mono">{armyStats.totalUnits}</div>
+            <div className="text-xs text-zinc-500 mt-1">Units</div>
+          </div>
+          <div>
+            <div className="text-3xl font-bold text-orange-400 font-mono">{armyStats.totalModels}</div>
+            <div className="text-xs text-zinc-500 mt-1">Models</div>
           </div>
         </div>
+      </div>
+      
+      {/* Units by Section */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-zinc-800">
+          <h3 className="text-lg font-semibold text-white">Unit Breakdown</h3>
+        </div>
         
-        {/* Tab Content */}
-        <main>
-          {/* Manual Army Building + Target/Analysis tabs */}
-          {(activeTab === 'target' || activeTab === 'analysis') && (
-            <>
-              <section className="mb-8">
-                <UnitList
-                  units={units}
-                  onAddUnitWithData={addUnitWithData}
-                  onUpdateUnit={updateUnit}
-                  onRemoveUnit={removeUnit}
-                  onDuplicateUnit={duplicateUnit}
-                  onAddProfile={addProfile}
-                  onSetProfiles={setUnitProfiles}
-                  onUpdateProfile={updateProfile}
-                  onRemoveProfile={removeProfile}
-                />
-              </section>
-              
-              {activeTab === 'target' && <TargetUnitTab profiles={allProfiles} units={units} />}
-              {activeTab === 'analysis' && <DamageAnalysisTab profiles={allProfiles} units={units} />}
-            </>
+        <div className="divide-y divide-zinc-800">
+          {/* Characters */}
+          {army.units.filter(u => u.section === 'characters').length > 0 && (
+            <SectionRow 
+              label="Characters" 
+              units={army.units.filter(u => u.section === 'characters')}
+              color="purple"
+            />
           )}
           
-          {/* Army Analysis - Separate section with its own import */}
-          {activeTab === 'army' && <ArmyAnalysisTab />}
-        </main>
-        
-        {/* Footer */}
-        <footer className="mt-12 pt-6 border-t border-zinc-800 text-center">
-          <p className="text-xs text-zinc-600">Built for the competitive 40K community</p>
-        </footer>
+          {/* Battleline */}
+          {army.units.filter(u => u.section === 'battleline').length > 0 && (
+            <SectionRow 
+              label="Battleline" 
+              units={army.units.filter(u => u.section === 'battleline')}
+              color="green"
+            />
+          )}
+          
+          {/* Other */}
+          {army.units.filter(u => u.section === 'other').length > 0 && (
+            <SectionRow 
+              label="Other Datasheets" 
+              units={army.units.filter(u => u.section === 'other')}
+              color="blue"
+            />
+          )}
+          
+          {/* Transports */}
+          {army.units.filter(u => u.section === 'transports').length > 0 && (
+            <SectionRow 
+              label="Transports" 
+              units={army.units.filter(u => u.section === 'transports')}
+              color="orange"
+            />
+          )}
+        </div>
+      </div>
+      
+      {/* Coming Features */}
+      <div className="bg-zinc-900/50 border border-dashed border-zinc-800 rounded-xl p-6 text-center">
+        <h4 className="text-sm font-medium text-zinc-400 mb-2">Coming Soon</h4>
+        <p className="text-xs text-zinc-500">
+          Defensive profile analysis, efficiency metrics, threat coverage analysis
+        </p>
       </div>
     </div>
   );
 }
 
-function TabButton({ active, onClick, icon, label, isNew }) {
+function SectionRow({ label, units, color }) {
+  const totalPoints = units.reduce((sum, u) => sum + (u.points || 0), 0);
+  const colors = {
+    purple: 'bg-purple-500',
+    green: 'bg-green-500',
+    blue: 'bg-blue-500',
+    orange: 'bg-orange-500',
+  };
+  
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors relative ${
-        active ? 'text-orange-500' : 'text-zinc-500 hover:text-zinc-300'
-      }`}
-    >
-      <span className={active ? 'text-orange-500' : 'text-zinc-600'}>{icon}</span>
-      {label}
-      {isNew && (
-        <span className="px-1.5 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-bold rounded uppercase">
-          New
-        </span>
-      )}
-      {active && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500 rounded-t" />}
-    </button>
-  );
-}
-
-function AnalysisIcon() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M3 3v18h18" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M18 9l-5 5-4-4-3 3" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-
-function TargetIcon() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
-    </svg>
-  );
-}
-
-function ArmyIcon() {
-  return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" strokeLinecap="round" strokeLinejoin="round"/>
-      <circle cx="9" cy="7" r="4"/>
-      <path d="M23 21v-2a4 4 0 00-3-3.87" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M16 3.13a4 4 0 010 7.75" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
+    <div className="px-6 py-4">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 rounded-full ${colors[color]}`} />
+          <span className="text-sm font-medium text-white">{label}</span>
+          <span className="text-xs text-zinc-500">({units.length})</span>
+        </div>
+        <span className="text-sm text-zinc-400 font-mono">{totalPoints} pts</span>
+      </div>
+      <div className="ml-4 space-y-1">
+        {units.map((unit, idx) => (
+          <div key={idx} className="flex items-center justify-between text-xs">
+            <span className="text-zinc-400">{unit.name}</span>
+            <span className="text-zinc-500 font-mono">{unit.points}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
