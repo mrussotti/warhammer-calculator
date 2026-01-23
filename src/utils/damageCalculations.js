@@ -208,43 +208,100 @@ export function parseAttacks(attacksStr) {
 /**
  * Calculate probability after rerolls
  * @param {number} baseProb - Base probability of success
- * @param {string} rerollType - 'none', 'ones', 'all', 'fails'
+ * @param {string} rerollType - 'none', 'ones', 'all', 'fishing', 'cp'
+ * @param {number} critThreshold - Roll needed for crit (for fishing calculation)
+ * @returns {object} { hitProb, critProb } - both probabilities after rerolls
  */
-function applyReroll(baseProb, rerollType) {
+function applyReroll(baseProb, rerollType, critThreshold = 6) {
+  const baseCritProb = Math.max(0, (7 - critThreshold) / 6);
+
   switch (rerollType) {
     case 'ones':
       // Reroll 1s: add (1/6) * baseProb
-      return baseProb + (1/6) * baseProb;
+      return {
+        hitProb: baseProb + (1/6) * baseProb,
+        critProb: baseCritProb + (1/6) * baseCritProb,
+      };
     case 'all':
     case 'fails':
       // Reroll all failures: P + (1-P) * P
-      return baseProb + (1 - baseProb) * baseProb;
+      return {
+        hitProb: baseProb + (1 - baseProb) * baseProb,
+        critProb: baseCritProb + (1 - baseProb) * baseCritProb,
+      };
+    case 'fishing':
+      // Fishing: reroll ALL non-crits (keep crits, reroll everything else)
+      // This maximizes crit generation at the cost of some regular hits
+      // P(crit total) = P(crit first) + P(non-crit first) * P(crit on reroll)
+      // P(hit total) = P(crit first) + P(non-crit first) * P(hit on reroll)
+      const nonCritProb = 1 - baseCritProb;
+      return {
+        hitProb: baseCritProb + nonCritProb * baseProb,
+        critProb: baseCritProb + nonCritProb * baseCritProb,
+      };
+    case 'cp':
+      // Command point reroll: reroll one die (approximation)
+      // Small boost - roughly equivalent to rerolling 1 in N dice
+      return {
+        hitProb: baseProb + (1 - baseProb) * baseProb * 0.15,
+        critProb: baseCritProb + (1 - baseProb) * baseCritProb * 0.15,
+      };
     default:
-      return baseProb;
+      return {
+        hitProb: baseProb,
+        critProb: baseCritProb,
+      };
   }
 }
 
 /**
- * Calculate expected crits after rerolls
- * @param {number} attacks - Number of attacks
- * @param {number} critThreshold - Roll needed for crit (usually 6, sometimes 5)
- * @param {string} rerollType - 'none', 'ones', 'all'
+ * Apply reroll to dice (for attacks/damage)
+ * Returns adjusted mean and variance
  */
-function calculateCritsWithReroll(attacks, critThreshold, rerollType) {
-  const baseCritProb = (7 - critThreshold) / 6;
-  
+function applyDiceReroll(diceStats, rerollType) {
+  const { mean, variance, min, max } = diceStats;
+
+  // Fixed values don't benefit from rerolls
+  if (variance === 0) return diceStats;
+
+  const dieSize = max - min + 1;
+
   switch (rerollType) {
-    case 'ones':
-      // Rerolling 1s gives another chance at crits
-      return attacks * (baseCritProb + (1/6) * baseCritProb);
-    case 'all':
-    case 'fails':
-      // Rerolling all misses - need to calculate based on hit threshold
-      // For simplicity, assume we get extra crit chances on rerolled dice
-      // This is an approximation
-      return attacks * baseCritProb * 1.5; // Rough estimate
+    case 'ones': {
+      // Reroll 1s (minimum value) on dice
+      // E[X with reroll min] = P(not min) * E[X | X > min] + P(min) * E[X]
+      // For D6: (5/6) * 4 + (1/6) * 3.5 = 3.917
+      // For D3: (2/3) * 2.5 + (1/3) * 2 = 2.333
+      const pNotMin = (dieSize - 1) / dieSize;
+      const pMin = 1 / dieSize;
+      const meanGivenNotMin = (min + 1 + max) / 2; // E[X | X > min]
+      const rerollOneMean = pNotMin * meanGivenNotMin + pMin * mean;
+      // Variance reduces slightly
+      const rerollOneVar = variance * 0.9;
+      return { ...diceStats, mean: rerollOneMean, variance: rerollOneVar };
+    }
+    case 'all': {
+      // Reroll all dice, keep higher (equivalent to rolling 2 and taking max)
+      // For D6: E[max(X,Y)] ≈ 4.47, boost ≈ 0.97
+      // For D3: E[max(X,Y)] ≈ 2.44, boost ≈ 0.44
+      // Using coefficient 0.39 which works well for D6 (most common)
+      const boost = (max - mean) * 0.39;
+      const allRerollMean = mean + boost;
+      // Variance reduces significantly
+      const allRerollVar = variance * 0.4;
+      return { ...diceStats, mean: allRerollMean, variance: allRerollVar };
+    }
+    case 'cp': {
+      // CP reroll: reroll one die if below average
+      // Approximation: half the benefit of reroll ones
+      const pNotMin = (dieSize - 1) / dieSize;
+      const pMin = 1 / dieSize;
+      const meanGivenNotMin = (min + 1 + max) / 2;
+      const cpRerollMean = mean + (pNotMin * meanGivenNotMin + pMin * mean - mean) * 0.5;
+      return { ...diceStats, mean: cpRerollMean };
+    }
     default:
-      return attacks * baseCritProb;
+      return diceStats;
   }
 }
 
@@ -288,38 +345,44 @@ export function calculateDamage(profile, target) {
     strength: rawStrength,
     ap: rawAp,
     damage,
-    
+
     // Hit modifiers
     torrent = false,          // Auto-hit
     heavy = false,            // +1 to hit if stationary
     hitMod = 0,               // General +/- to hit
-    rerollHits = 'none',      // 'none', 'ones', 'all'
+    rerollHits = 'none',      // 'none', 'ones', 'all', 'fishing', 'cp'
     critHitOn = 6,            // Critical hits on X+ (usually 6, sometimes 5)
-    
+
     // Wound modifiers
     lance = false,            // +1 to wound on charge
     woundMod = 0,             // General +/- to wound
-    rerollWounds = 'none',    // 'none', 'ones', 'all' (Twin-Linked = 'all')
+    rerollWounds = 'none',    // 'none', 'ones', 'all', 'fishing', 'cp'
     twinLinked = false,       // Shorthand for rerollWounds: 'all'
     critWoundOn = 6,          // Critical wounds on X+ (usually 6)
-    
+
     // Critical abilities
     sustainedHits = 0,        // Extra hits on crit
     lethalHits = false,       // Crits auto-wound
     devastatingWounds = false,// Crit wounds bypass saves
-    
+
     // Anti-X
     antiKeyword = null,       // { keyword: 'VEHICLE', value: 4 }
-    
+
     // Range/situational
     melta = 0,                // +X damage at half range
     rapidFire = 0,            // +X attacks at half range
     ignoresCover = false,
     blast = false,            // +1 attack per 5 models (for future)
+
+    // Dice rerolls (for variable attacks/damage)
+    rerollShots = 'none',     // 'none', 'ones', 'all', 'cp'
+    rerollDamage = 'none',    // 'none', 'ones', 'all', 'cp'
   } = profile || {};
   
   // Sanitize weapon stats - attacks can now be dice notation (e.g., "D6", "2D6")
-  const attacksStats = parseAttacks(rawAttacks);
+  let attacksStats = parseAttacks(rawAttacks);
+  // Apply shots reroll if applicable
+  attacksStats = applyDiceReroll(attacksStats, rerollShots);
   const attacksPerModel = attacksStats.mean;
   const attacksVariancePerModel = attacksStats.variance;
   const attackerModelCount = safeNum(rawModelCount, 1);
@@ -376,6 +439,8 @@ export function calculateDamage(profile, target) {
   }
   
   let damageStats = parseDamage(damage);
+  // Apply damage reroll if applicable
+  damageStats = applyDiceReroll(damageStats, rerollDamage);
   if (halfRange && melta > 0) {
     damageStats = {
       ...damageStats,
@@ -408,42 +473,42 @@ export function calculateDamage(profile, target) {
   
   // ===== STEP 1: Calculate Hits =====
   let hitProb;
+  let critHitProb;
   let effectiveCritHitOn = critHitOn;
-  
+
   if (torrent) {
     hitProb = 1;
+    critHitProb = 0;
     effectiveCritHitOn = 7; // No crits on auto-hit
   } else {
     let effectiveBS = bs;
-    
+
     // Heavy: +1 to hit if stationary
     if (heavy && stationary) {
       effectiveBS = Math.max(2, effectiveBS - 1);
     }
-    
+
     // Apply hit modifier
     effectiveBS = effectiveBS - hitMod;
-    
+
     // Stealth: -1 to hit
     if (stealth) {
       effectiveBS = effectiveBS + 1;
     }
-    
+
     // Clamp BS
     effectiveBS = Math.max(2, Math.min(6, effectiveBS));
-    
-    hitProb = (7 - effectiveBS) / 6;
-    
-    // Apply hit rerolls
-    hitProb = applyReroll(hitProb, rerollHits);
+
+    const baseHitProb = (7 - effectiveBS) / 6;
+
+    // Apply hit rerolls (returns both hit and crit probabilities)
+    const rerollResult = applyReroll(baseHitProb, rerollHits, effectiveCritHitOn);
+    hitProb = rerollResult.hitProb;
+    critHitProb = rerollResult.critProb;
   }
-  
-  // Calculate crits
-  const critHitProb = effectiveCritHitOn <= 6 ? (7 - effectiveCritHitOn) / 6 : 0;
+
+  // Calculate expected crits
   let expectedCritHits = effectiveAttacks * critHitProb;
-  if (rerollHits !== 'none' && !torrent) {
-    expectedCritHits = calculateCritsWithReroll(effectiveAttacks, effectiveCritHitOn, rerollHits);
-  }
   
   // Total hits
   const expectedHits = effectiveAttacks * hitProb;
@@ -451,10 +516,18 @@ export function calculateDamage(profile, target) {
   const totalHits = expectedHits + sustainedBonus;
   
   // ===== STEP 2: Calculate Wounds =====
-  
+
   // Determine effective reroll type for wounds
   const effectiveRerollWounds = twinLinked ? 'all' : rerollWounds;
-  
+
+  // Critical wound threshold (calculate first for fishing rerolls)
+  let effectiveCritWoundOn = critWoundOn;
+
+  // Anti-X: Critical wounds on X+ vs matching keyword
+  if (antiKeyword && keywords.includes(antiKeyword.keyword)) {
+    effectiveCritWoundOn = Math.min(effectiveCritWoundOn, antiKeyword.value);
+  }
+
   // Calculate wound modifiers
   let totalWoundMod = woundMod;
   if (lance && charged) {
@@ -462,39 +535,31 @@ export function calculateDamage(profile, target) {
   }
   // Target's defensive wound modifier
   totalWoundMod -= minusToWound;
-  
+
   // Base wound probability
   const baseWoundProb = getWoundProb(strength, toughness, {
     woundMod: totalWoundMod,
     transhumanlike,
   });
-  
-  // Apply wound rerolls
-  const woundProb = applyReroll(baseWoundProb, effectiveRerollWounds);
-  
-  // Critical wound threshold
-  let effectiveCritWoundOn = critWoundOn;
-  
-  // Anti-X: Critical wounds on X+ vs matching keyword
-  if (antiKeyword && keywords.includes(antiKeyword.keyword)) {
-    effectiveCritWoundOn = Math.min(effectiveCritWoundOn, antiKeyword.value);
-  }
-  
-  const critWoundProb = Math.min((7 - effectiveCritWoundOn) / 6, woundProb);
-  
+
+  // Apply wound rerolls (returns both wound and crit probabilities)
+  const woundRerollResult = applyReroll(baseWoundProb, effectiveRerollWounds, effectiveCritWoundOn);
+  const woundProb = woundRerollResult.hitProb; // hitProb is the success prob
+  const critWoundProb = woundRerollResult.critProb;
+
   // Lethal Hits: Crit hits auto-wound
   let autoWounds = 0;
   let hitsToRoll = totalHits;
-  
+
   if (lethalHits) {
     autoWounds = expectedCritHits;
     hitsToRoll = totalHits - expectedCritHits;
   }
-  
+
   // Wounds from rolling
   const rolledWounds = hitsToRoll * woundProb;
   const totalWounds = autoWounds + rolledWounds;
-  
+
   // Critical wounds (for Devastating Wounds)
   const critWounds = hitsToRoll * critWoundProb;
   const normalWounds = autoWounds + (rolledWounds - critWounds);

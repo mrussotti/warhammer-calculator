@@ -17,9 +17,20 @@ function ToolsArea({
   unitsForCalculator,
   selectedUnitIds,
   armyStats,
-  // Profile override functions
+  // Profile (weapon) override functions
   updateProfileOverride,
   resetProfileOverrides,
+  // Unit override functions
+  unitOverrides,
+  updateUnitOverride,
+  resetUnitOverride,
+  resetUnitOverrides,
+  // Army override functions
+  armyOverrides,
+  updateArmyOverride,
+  resetArmyOverrides,
+  // Reset all
+  resetAllOverrides,
 }) {
   const [activeTool, setActiveTool] = useState('damage');
   
@@ -135,7 +146,15 @@ function ToolsArea({
           <SelectedUnitsEditor
             units={unitsForCalculator}
             onProfileUpdate={updateProfileOverride}
-            onResetAll={resetProfileOverrides}
+            onResetAll={resetAllOverrides}
+            // Unit overrides
+            unitOverrides={unitOverrides}
+            onUnitOverrideUpdate={updateUnitOverride}
+            onUnitOverrideReset={resetUnitOverride}
+            // Army overrides
+            armyOverrides={armyOverrides}
+            onArmyOverrideUpdate={updateArmyOverride}
+            onArmyOverrideReset={resetArmyOverrides}
           />
         )}
         

@@ -29,6 +29,15 @@ export function useArmy() {
   // Key: profileId (e.g., "0-Beast Snagga Boy-Choppa")
   // Value: { rerollHits: 'all', sustainedHits: 2, etc. }
   const [profileOverrides, setProfileOverrides] = useState({});
+
+  // Unit overrides - modifiers applied to all weapons in a unit
+  // Key: unitOriginalIndex (e.g., 0, 1, 2)
+  // Value: { rerollHits: 'all', lance: true, etc. }
+  const [unitOverrides, setUnitOverrides] = useState({});
+
+  // Army overrides - modifiers applied to ALL weapons in the army
+  // Single object: { rerollHits: 'all', sustainedHits: 1, etc. }
+  const [armyOverrides, setArmyOverrides] = useState({});
   
   // Load Wahapedia data on mount
   useEffect(() => {
@@ -156,29 +165,64 @@ export function useArmy() {
   // Transform units to format expected by TargetUnitTab
   // TargetUnitTab expects: unit.profiles[] (flat weapon list with IDs)
   // We have: unit.models[].weapons[] (nested structure)
-  // Also applies user-specified profileOverrides for modifiers
+  // Applies cascading overrides: armyOverrides -> unitOverrides -> profileOverrides
   const unitsForCalculator = useMemo(() => {
+    // Helper to filter only applicable modifiers for army/unit level
+    // (excludes weapon-specific modifiers like torrent, melta, rapidFire, blast, antiKeyword)
+    // Also handles melee/ranged filtering for sustained/lethal hits
+    const filterHighLevelOverrides = (overrides, weaponType) => {
+      if (!overrides) return {};
+      const {
+        torrent, melta, rapidFire, blast, antiKeyword, twinLinked,
+        sustainedHitsFilter, lethalHitsFilter,
+        ...applicable
+      } = overrides;
+
+      // Check if sustained hits should apply based on weapon type filter
+      if (applicable.sustainedHits && sustainedHitsFilter && sustainedHitsFilter !== 'all') {
+        if (sustainedHitsFilter !== weaponType) {
+          delete applicable.sustainedHits;
+        }
+      }
+
+      // Check if lethal hits should apply based on weapon type filter
+      if (applicable.lethalHits && lethalHitsFilter && lethalHitsFilter !== 'all') {
+        if (lethalHitsFilter !== weaponType) {
+          delete applicable.lethalHits;
+        }
+      }
+
+      return applicable;
+    };
+
     return selectedComposedUnits.map(unit => {
       // Flatten models.weapons into profiles array
       const profiles = [];
       unit.models?.forEach(model => {
         model.weapons?.forEach(weapon => {
-          const modelCount = model.count || 1;
+          // weapon.count is already the TOTAL number of this weapon type
+          // (e.g., "20x Choppa" means 20 Choppas total, not 20 per model)
           const weaponCount = weapon.count || 1;
           const profileId = `${unit.originalIndex}-${model.name}-${weapon.name}`;
-          
-          // Get any user overrides for this profile
-          const overrides = profileOverrides[profileId] || {};
-          
+          const weaponType = weapon.type || 'ranged'; // default to ranged if not specified
+
+          // Get applicable army and unit overrides (filtered by weapon type)
+          const applicableArmyOverrides = filterHighLevelOverrides(armyOverrides, weaponType);
+          const applicableUnitOverrides = filterHighLevelOverrides(unitOverrides[unit.originalIndex], weaponType);
+
+          // Get any user overrides for this profile (weapon-level)
+          const weaponOverrides = profileOverrides[profileId] || {};
+
           profiles.push({
             id: profileId,
             name: weapon.name,
+            type: weaponType,
             attacks: weapon.attacks || '1',
             bs: weapon.bs || 4,
             strength: weapon.strength || 4,
             ap: weapon.ap || 0,
             damage: weapon.damage || '1',
-            modelCount: modelCount * weaponCount,
+            modelCount: weaponCount,
             // Weapon abilities - base values from parsed data
             torrent: weapon.torrent || false,
             heavy: weapon.heavy || false,
@@ -199,13 +243,18 @@ export function useArmy() {
             woundMod: 0,
             rerollWounds: 'none',
             critWoundOn: 6,
+            // Dice rerolls
+            rerollShots: 'none',
+            rerollDamage: 'none',
             active: true,
-            // Apply user overrides last (they take precedence)
-            ...overrides,
+            // Cascade overrides: army -> unit -> weapon (lower levels override higher)
+            ...applicableArmyOverrides,
+            ...applicableUnitOverrides,
+            ...weaponOverrides,
           });
         });
       });
-      
+
       return {
         id: unit.originalIndex,
         name: displayNames.get(unit.originalIndex) || unit.name,
@@ -213,7 +262,7 @@ export function useArmy() {
         profiles,
       };
     });
-  }, [selectedComposedUnits, displayNames, profileOverrides]);
+  }, [selectedComposedUnits, displayNames, profileOverrides, unitOverrides, armyOverrides]);
   
   // Weapon profiles from selected units (for damage calculator)
   // Now derives from unitsForCalculator to ensure overrides are applied consistently
@@ -256,11 +305,13 @@ export function useArmy() {
   
   const importArmy = useCallback((armyData) => {
     setImportedArmy(armyData);
-    // Reset selection, composition, and profile overrides
+    // Reset selection, composition, and all overrides
     setSelectedUnitIds(new Set());
     setAttachments({});
     setEmbarked({});
     setProfileOverrides({});
+    setUnitOverrides({});
+    setArmyOverrides({});
   }, []);
   
   const clearArmy = useCallback(() => {
@@ -269,6 +320,8 @@ export function useArmy() {
     setAttachments({});
     setEmbarked({});
     setProfileOverrides({});
+    setUnitOverrides({});
+    setArmyOverrides({});
   }, []);
   
   // Update a single profile's modifiers
@@ -282,6 +335,45 @@ export function useArmy() {
   // Reset all profile overrides
   const resetProfileOverrides = useCallback(() => {
     setProfileOverrides({});
+  }, []);
+
+  // Update a single unit's modifiers
+  const updateUnitOverride = useCallback((unitIndex, overrides) => {
+    setUnitOverrides(prev => ({
+      ...prev,
+      [unitIndex]: { ...(prev[unitIndex] || {}), ...overrides }
+    }));
+  }, []);
+
+  // Reset a single unit's overrides
+  const resetUnitOverride = useCallback((unitIndex) => {
+    setUnitOverrides(prev => {
+      const next = { ...prev };
+      delete next[unitIndex];
+      return next;
+    });
+  }, []);
+
+  // Reset all unit overrides
+  const resetUnitOverrides = useCallback(() => {
+    setUnitOverrides({});
+  }, []);
+
+  // Update army-wide modifiers
+  const updateArmyOverride = useCallback((overrides) => {
+    setArmyOverrides(prev => ({ ...prev, ...overrides }));
+  }, []);
+
+  // Reset army overrides
+  const resetArmyOverrides = useCallback(() => {
+    setArmyOverrides({});
+  }, []);
+
+  // Reset all overrides (army, unit, and profile)
+  const resetAllOverrides = useCallback(() => {
+    setProfileOverrides({});
+    setUnitOverrides({});
+    setArmyOverrides({});
   }, []);
   
   const toggleUnit = useCallback((unitIndex) => {
@@ -343,33 +435,35 @@ export function useArmy() {
     wahapediaUnits,
     isLoadingData,
     sidebarCollapsed,
-    
+
     // Units
     units,
     leaders,
     squads,
     transports,
     composedUnits,
-    
+
     // Selection
     selectedUnitIds,
     selectedUnits,
     selectedComposedUnits,
     selectedProfiles,
     unitsForCalculator,
-    
+
     // Composition
     attachments,
     embarked,
-    
-    // Profile overrides
+
+    // Overrides (cascading: army -> unit -> profile)
     profileOverrides,
-    
+    unitOverrides,
+    armyOverrides,
+
     // Computed
     displayNames,
     matchStats,
     armyStats,
-    
+
     // Actions
     importArmy,
     clearArmy,
@@ -380,8 +474,18 @@ export function useArmy() {
     embarkUnit,
     toggleSidebar,
     getDisplayName,
+    // Profile (weapon) level
     updateProfileOverride,
     resetProfileOverrides,
+    // Unit level
+    updateUnitOverride,
+    resetUnitOverride,
+    resetUnitOverrides,
+    // Army level
+    updateArmyOverride,
+    resetArmyOverrides,
+    // Reset all
+    resetAllOverrides,
   };
 }
 

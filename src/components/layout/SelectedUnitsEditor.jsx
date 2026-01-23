@@ -46,7 +46,29 @@ function ModSelect({ label, value, onChange, options, color = 'orange' }) {
     purple: 'bg-purple-500/20 border-purple-500/50 text-purple-400',
     orange: 'bg-orange-500/20 border-orange-500/50 text-orange-400',
   };
-  
+
+  // Handle case where label is empty (just show the select)
+  if (!label) {
+    return (
+      <select
+        value={value ?? defaultValue}
+        onChange={(e) => {
+          const val = e.target.value;
+          onChange(val === 'none' ? 'none' : isNaN(val) ? val : parseInt(val));
+        }}
+        className={`h-[26px] text-xs py-0.5 px-2 rounded border focus:outline-none focus:border-orange-500 ${
+          active
+            ? `${colors[color]}`
+            : 'bg-zinc-800 border-zinc-700 text-zinc-400'
+        }`}
+      >
+        {options.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+    );
+  }
+
   return (
     <div className="flex items-center">
       <span className={`px-2 py-1 text-[11px] font-medium border rounded-l border-r-0 ${
@@ -173,8 +195,8 @@ function AntiKeywordSelector({ value, onChange }) {
 }
 
 // Individual weapon card with expandable modifiers
-function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpand }) {
-  // Count active modifiers
+function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpand, armyOverrides, unitOverrides }) {
+  // Count active modifiers (from any source)
   const activeModCount = useMemo(() => {
     let count = 0;
     if (profile.torrent) count++;
@@ -197,6 +219,10 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
     if (profile.blast) count++;
     return count;
   }, [profile]);
+
+  // Check for inherited modifiers
+  const hasArmyInheritance = countActiveModifiers(armyOverrides) > 0;
+  const hasUnitInheritance = countActiveModifiers(unitOverrides) > 0;
   
   // Format stat value
   const formatStat = (val) => {
@@ -243,7 +269,7 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
             
             {/* Weapon name and stats */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className={`font-semibold truncate ${profile.active !== false ? 'text-white' : 'text-zinc-500'}`}>
                   {profile.name}
                 </span>
@@ -252,9 +278,24 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
                     {activeModCount} mod{activeModCount !== 1 ? 's' : ''}
                   </span>
                 )}
+                {hasArmyInheritance && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400">
+                    army
+                  </span>
+                )}
+                {hasUnitInheritance && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/20 text-blue-400">
+                    unit
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500 font-mono">
-                <span className="text-zinc-400">{formatStat(totalAttacks)}A</span>
+                <span className="text-zinc-400">
+                  {profile.modelCount > 1
+                    ? `${formatStat(profile.attacks)}×${profile.modelCount}=${formatStat(totalAttacks)}A`
+                    : `${formatStat(totalAttacks)}A`
+                  }
+                </span>
                 <span>·</span>
                 <span>{profile.torrent ? 'Auto' : `${formatStat(profile.bs)}+`}</span>
                 <span>·</span>
@@ -263,12 +304,6 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
                 <span>AP-{formatStat(profile.ap)}</span>
                 <span>·</span>
                 <span>D{formatStat(profile.damage)}</span>
-                {profile.modelCount > 1 && (
-                  <>
-                    <span>·</span>
-                    <span className="text-zinc-400">{profile.modelCount} models</span>
-                  </>
-                )}
               </div>
             </div>
           </div>
@@ -293,6 +328,16 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
       {/* Expanded modifier controls */}
       {isExpanded && (
         <div className="px-4 pb-4 space-y-3 border-t border-zinc-800 pt-3">
+          {/* Inheritance notice */}
+          {(hasArmyInheritance || hasUnitInheritance) && (
+            <div className="px-2 py-1.5 bg-zinc-800/50 border border-zinc-700 rounded text-[10px] text-zinc-400">
+              <span className="font-medium text-zinc-300">Inherited modifiers: </span>
+              {hasArmyInheritance && <span className="text-amber-400">Army</span>}
+              {hasArmyInheritance && hasUnitInheritance && <span> + </span>}
+              {hasUnitInheritance && <span className="text-blue-400">Unit</span>}
+              <span className="ml-1">— Set values below to override.</span>
+            </div>
+          )}
           {/* Hit Modifiers */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
             <div className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider mb-2">Hit Modifiers</div>
@@ -318,27 +363,31 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
                 showSign 
                 color="blue" 
               />
-              <ModSelect 
-                label="RR Hits" 
-                value={profile.rerollHits || 'none'} 
-                onChange={(v) => handleChange('rerollHits', v)} 
+              <ModSelect
+                label="RR Hits"
+                value={profile.rerollHits || 'none'}
+                onChange={(v) => handleChange('rerollHits', v)}
                 options={[
                   { value: 'none', label: 'None' },
                   { value: 'ones', label: '1s' },
                   { value: 'all', label: 'All' },
-                ]} 
-                color="blue" 
+                  { value: 'fishing', label: 'Fish' },
+                  { value: 'cp', label: 'CP' },
+                ]}
+                color="blue"
               />
-              <ModSelect 
-                label="Crit On" 
-                value={profile.critHitOn || 6} 
-                onChange={(v) => handleChange('critHitOn', v)} 
+              <ModSelect
+                label="Crit On"
+                value={profile.critHitOn || 6}
+                onChange={(v) => handleChange('critHitOn', v)}
                 options={[
                   { value: 6, label: '6s' },
                   { value: 5, label: '5+' },
                   { value: 4, label: '4+' },
-                ]} 
-                color="blue" 
+                  { value: 3, label: '3+' },
+                  { value: 2, label: '2+' },
+                ]}
+                color="blue"
               />
             </div>
           </div>
@@ -368,27 +417,31 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
                 showSign 
                 color="green" 
               />
-              <ModSelect 
-                label="RR Wnds" 
-                value={profile.rerollWounds || 'none'} 
-                onChange={(v) => handleChange('rerollWounds', v)} 
+              <ModSelect
+                label="RR Wnds"
+                value={profile.rerollWounds || 'none'}
+                onChange={(v) => handleChange('rerollWounds', v)}
                 options={[
                   { value: 'none', label: 'None' },
                   { value: 'ones', label: '1s' },
                   { value: 'all', label: 'All' },
-                ]} 
-                color="green" 
+                  { value: 'fishing', label: 'Fish' },
+                  { value: 'cp', label: 'CP' },
+                ]}
+                color="green"
               />
               <ModSelect 
-                label="Crit Wnd" 
-                value={profile.critWoundOn || 6} 
-                onChange={(v) => handleChange('critWoundOn', v)} 
+                label="Crit Wnd"
+                value={profile.critWoundOn || 6}
+                onChange={(v) => handleChange('critWoundOn', v)}
                 options={[
                   { value: 6, label: '6s' },
                   { value: 5, label: '5+' },
                   { value: 4, label: '4+' },
-                ]} 
-                color="green" 
+                  { value: 3, label: '3+' },
+                  { value: 2, label: '2+' },
+                ]}
+                color="green"
               />
             </div>
           </div>
@@ -423,28 +476,59 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
             </div>
           </div>
           
+          {/* Dice Rerolls */}
+          <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+            <div className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider mb-2">Dice Rerolls</div>
+            <div className="flex flex-wrap gap-1.5">
+              <ModSelect
+                label="RR Shots"
+                value={profile.rerollShots || 'none'}
+                onChange={(v) => handleChange('rerollShots', v)}
+                options={[
+                  { value: 'none', label: 'None' },
+                  { value: 'ones', label: '1s' },
+                  { value: 'all', label: 'All' },
+                  { value: 'cp', label: 'CP' },
+                ]}
+                color="blue"
+              />
+              <ModSelect
+                label="RR Dmg"
+                value={profile.rerollDamage || 'none'}
+                onChange={(v) => handleChange('rerollDamage', v)}
+                options={[
+                  { value: 'none', label: 'None' },
+                  { value: 'ones', label: '1s' },
+                  { value: 'all', label: 'All' },
+                  { value: 'cp', label: 'CP' },
+                ]}
+                color="blue"
+              />
+            </div>
+          </div>
+
           {/* Range & Other */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
             <div className="text-[10px] font-semibold text-orange-400 uppercase tracking-wider mb-2">Range & Other</div>
             <div className="flex flex-wrap gap-1.5">
-              <ModNumber 
-                label="Melta" 
-                value={profile.melta || 0} 
-                onChange={(v) => handleChange('melta', v)} 
-                max={4} 
-                color="orange" 
+              <ModNumber
+                label="Melta"
+                value={profile.melta || 0}
+                onChange={(v) => handleChange('melta', v)}
+                max={4}
+                color="orange"
               />
-              <ModNumber 
-                label="Rapid Fire" 
-                value={profile.rapidFire || 0} 
-                onChange={(v) => handleChange('rapidFire', v)} 
-                max={4} 
-                color="orange" 
+              <ModNumber
+                label="Rapid Fire"
+                value={profile.rapidFire || 0}
+                onChange={(v) => handleChange('rapidFire', v)}
+                max={4}
+                color="orange"
               />
-              <ModToggle 
-                label="Ignores Cover" 
-                active={profile.ignoresCover} 
-                onChange={(v) => handleChange('ignoresCover', v)} 
+              <ModToggle
+                label="Ignores Cover"
+                active={profile.ignoresCover}
+                onChange={(v) => handleChange('ignoresCover', v)}
                 color="orange" 
               />
               <ModToggle 
@@ -461,36 +545,76 @@ function WeaponCard({ profile, index, color, onUpdate, isExpanded, onToggleExpan
   );
 }
 
-// Unit group containing multiple weapons
-function UnitGroup({ unit, unitIndex, globalProfileStartIndex, onUpdateProfile, expandedProfiles, onToggleExpand }) {
-  const totalModels = unit.profiles.reduce((sum, p) => sum + (p.modelCount || 1), 0);
+// Unit group containing multiple weapons with unit-level modifiers
+function UnitGroup({
+  unit,
+  unitIndex,
+  globalProfileStartIndex,
+  onUpdateProfile,
+  expandedProfiles,
+  onToggleExpand,
+  // Unit-level modifiers
+  unitOverrides,
+  onUnitOverrideUpdate,
+  onUnitOverrideReset,
+  isUnitModsExpanded,
+  onToggleUnitMods,
+  // Army-level modifiers (for inheritance display)
+  armyOverrides,
+}) {
   const activeProfiles = unit.profiles.filter(p => p.active !== false);
-  
+  const unitColor = PROFILE_COLORS[unitIndex % PROFILE_COLORS.length];
+  const unitModCount = countActiveModifiers(unitOverrides);
+  const armyModCount = countActiveModifiers(armyOverrides);
+
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
       {/* Unit header */}
       <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-800/30">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div 
-              className="w-3 h-3 rounded-full" 
-              style={{ backgroundColor: PROFILE_COLORS[unitIndex % PROFILE_COLORS.length].bg }} 
+            <div
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: unitColor.bg }}
             />
             <div>
-              <h3 className="text-sm font-semibold text-white">{unit.name}</h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-white">{unit.name}</h3>
+                {unitModCount > 0 && (
+                  <span
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    style={{ backgroundColor: `${unitColor.bg}40`, color: unitColor.bg }}
+                  >
+                    {unitModCount} unit mod{unitModCount !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {armyModCount > 0 && unitModCount === 0 && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400">
+                    inherits army
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2 text-xs text-zinc-500">
-                <span>{totalModels} model{totalModels !== 1 ? 's' : ''}</span>
-                <span>·</span>
-                <span>{activeProfiles.length}/{unit.profiles.length} weapons active</span>
+                <span>{activeProfiles.length}/{unit.profiles.length} weapon profiles active</span>
               </div>
             </div>
           </div>
-          
+
           {/* Quick actions */}
           <div className="flex items-center gap-2">
             <button
+              onClick={onToggleUnitMods}
+              className={`px-2 py-1 text-[10px] rounded transition-colors ${
+                isUnitModsExpanded
+                  ? 'bg-zinc-700 text-zinc-200'
+                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+              }`}
+            >
+              Unit Mods
+            </button>
+            <span className="text-zinc-700">|</span>
+            <button
               onClick={() => {
-                // Expand all weapons in this unit
                 unit.profiles.forEach(p => {
                   if (!expandedProfiles.has(p.id)) {
                     onToggleExpand(p.id);
@@ -504,7 +628,6 @@ function UnitGroup({ unit, unitIndex, globalProfileStartIndex, onUpdateProfile, 
             <span className="text-zinc-700">|</span>
             <button
               onClick={() => {
-                // Collapse all weapons in this unit
                 unit.profiles.forEach(p => {
                   if (expandedProfiles.has(p.id)) {
                     onToggleExpand(p.id);
@@ -518,13 +641,52 @@ function UnitGroup({ unit, unitIndex, globalProfileStartIndex, onUpdateProfile, 
           </div>
         </div>
       </div>
-      
+
+      {/* Unit-level modifiers (expandable) */}
+      {isUnitModsExpanded && (
+        <div
+          className="px-4 py-3 border-b border-zinc-800"
+          style={{ backgroundColor: `${unitColor.bg}08` }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium" style={{ color: unitColor.bg }}>
+                Unit-Level Modifiers
+              </span>
+              <span className="text-[10px] text-zinc-500">
+                (applies to all weapons in this unit)
+              </span>
+            </div>
+            {unitModCount > 0 && (
+              <button
+                onClick={() => onUnitOverrideReset(unit.id)}
+                className="px-2 py-1 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <SharedModifierPanel
+            overrides={unitOverrides || {}}
+            onChange={(updates) => onUnitOverrideUpdate(unit.id, updates)}
+            color="blue"
+            label="Unit"
+          />
+          {armyModCount > 0 && (
+            <div className="mt-2 px-2 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded text-[10px] text-amber-400">
+              Note: {armyModCount} army-wide modifier{armyModCount !== 1 ? 's' : ''} also applied.
+              Set a value here to override the army setting for this unit.
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Weapon cards */}
       <div className="p-3 space-y-2">
         {unit.profiles.map((profile, idx) => {
           const globalIndex = globalProfileStartIndex + idx;
           const color = PROFILE_COLORS[globalIndex % PROFILE_COLORS.length];
-          
+
           return (
             <WeaponCard
               key={profile.id}
@@ -534,6 +696,9 @@ function UnitGroup({ unit, unitIndex, globalProfileStartIndex, onUpdateProfile, 
               onUpdate={onUpdateProfile}
               isExpanded={expandedProfiles.has(profile.id)}
               onToggleExpand={() => onToggleExpand(profile.id)}
+              // Inheritance info
+              armyOverrides={armyOverrides}
+              unitOverrides={unitOverrides}
             />
           );
         })}
@@ -542,11 +707,327 @@ function UnitGroup({ unit, unitIndex, globalProfileStartIndex, onUpdateProfile, 
   );
 }
 
+// Shared modifier panel for army/unit level (excludes weapon-specific modifiers)
+function SharedModifierPanel({ overrides, onChange, color = 'orange', label }) {
+  const handleChange = (key, value) => {
+    onChange({ [key]: value });
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Hit Modifiers */}
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+        <div className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider mb-2">Hit Modifiers</div>
+        <div className="flex flex-wrap gap-1.5">
+          <ModToggle
+            label="Heavy"
+            active={overrides.heavy}
+            onChange={(v) => handleChange('heavy', v)}
+            color="blue"
+            size="small"
+          />
+          <ModNumber
+            label="Hit ±"
+            value={overrides.hitMod || 0}
+            onChange={(v) => handleChange('hitMod', v)}
+            min={-2}
+            max={2}
+            showSign
+            color="blue"
+          />
+          <ModSelect
+            label="RR Hits"
+            value={overrides.rerollHits || 'none'}
+            onChange={(v) => handleChange('rerollHits', v)}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'ones', label: '1s' },
+              { value: 'all', label: 'All' },
+              { value: 'fishing', label: 'Fish' },
+              { value: 'cp', label: 'CP' },
+            ]}
+            color="blue"
+          />
+          <ModSelect
+            label="Crit On"
+            value={overrides.critHitOn || 6}
+            onChange={(v) => handleChange('critHitOn', v)}
+            options={[
+              { value: 6, label: '6s' },
+              { value: 5, label: '5+' },
+              { value: 4, label: '4+' },
+              { value: 3, label: '3+' },
+              { value: 2, label: '2+' },
+            ]}
+            color="blue"
+          />
+        </div>
+      </div>
+
+      {/* Wound Modifiers */}
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+        <div className="text-[10px] font-semibold text-green-400 uppercase tracking-wider mb-2">Wound Modifiers</div>
+        <div className="flex flex-wrap gap-1.5">
+          <ModToggle
+            label="Lance"
+            active={overrides.lance}
+            onChange={(v) => handleChange('lance', v)}
+            color="green"
+            size="small"
+          />
+          <ModNumber
+            label="Wnd ±"
+            value={overrides.woundMod || 0}
+            onChange={(v) => handleChange('woundMod', v)}
+            min={-2}
+            max={2}
+            showSign
+            color="green"
+          />
+          <ModSelect
+            label="RR Wnds"
+            value={overrides.rerollWounds || 'none'}
+            onChange={(v) => handleChange('rerollWounds', v)}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'ones', label: '1s' },
+              { value: 'all', label: 'All' },
+              { value: 'fishing', label: 'Fish' },
+              { value: 'cp', label: 'CP' },
+            ]}
+            color="green"
+          />
+          <ModSelect
+            label="Crit Wnd"
+            value={overrides.critWoundOn || 6}
+            onChange={(v) => handleChange('critWoundOn', v)}
+            options={[
+              { value: 6, label: '6s' },
+              { value: 5, label: '5+' },
+              { value: 4, label: '4+' },
+              { value: 3, label: '3+' },
+              { value: 2, label: '2+' },
+            ]}
+            color="green"
+          />
+        </div>
+      </div>
+
+      {/* Critical Abilities */}
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+        <div className="text-[10px] font-semibold text-purple-400 uppercase tracking-wider mb-2">Critical Abilities</div>
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {/* Sustained Hits with filter */}
+          <ModNumber
+            label="Sustained"
+            value={overrides.sustainedHits || 0}
+            onChange={(v) => handleChange('sustainedHits', v)}
+            max={3}
+            color="purple"
+          />
+          {(overrides.sustainedHits > 0) && (
+            <ModSelect
+              label=""
+              value={overrides.sustainedHitsFilter || 'all'}
+              onChange={(v) => handleChange('sustainedHitsFilter', v)}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'melee', label: 'Melee' },
+                { value: 'ranged', label: 'Ranged' },
+              ]}
+              color="purple"
+            />
+          )}
+
+          {/* Lethal Hits with filter */}
+          <ModToggle
+            label="Lethal Hits"
+            active={overrides.lethalHits}
+            onChange={(v) => handleChange('lethalHits', v)}
+            color="purple"
+            size="small"
+          />
+          {overrides.lethalHits && (
+            <ModSelect
+              label=""
+              value={overrides.lethalHitsFilter || 'all'}
+              onChange={(v) => handleChange('lethalHitsFilter', v)}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'melee', label: 'Melee' },
+                { value: 'ranged', label: 'Ranged' },
+              ]}
+              color="purple"
+            />
+          )}
+
+          <ModToggle
+            label="Devastating"
+            active={overrides.devastatingWounds}
+            onChange={(v) => handleChange('devastatingWounds', v)}
+            color="purple"
+            size="small"
+          />
+        </div>
+      </div>
+
+      {/* Dice Rerolls */}
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+        <div className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider mb-2">Dice Rerolls</div>
+        <div className="flex flex-wrap gap-1.5">
+          <ModSelect
+            label="RR Shots"
+            value={overrides.rerollShots || 'none'}
+            onChange={(v) => handleChange('rerollShots', v)}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'ones', label: '1s' },
+              { value: 'all', label: 'All' },
+              { value: 'cp', label: 'CP' },
+            ]}
+            color="blue"
+          />
+          <ModSelect
+            label="RR Dmg"
+            value={overrides.rerollDamage || 'none'}
+            onChange={(v) => handleChange('rerollDamage', v)}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'ones', label: '1s' },
+              { value: 'all', label: 'All' },
+              { value: 'cp', label: 'CP' },
+            ]}
+            color="blue"
+          />
+        </div>
+      </div>
+
+      {/* Other */}
+      <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3">
+        <div className="text-[10px] font-semibold text-orange-400 uppercase tracking-wider mb-2">Other</div>
+        <div className="flex flex-wrap gap-1.5">
+          <ModToggle
+            label="Ignores Cover"
+            active={overrides.ignoresCover}
+            onChange={(v) => handleChange('ignoresCover', v)}
+            color="orange"
+            size="small"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Count active modifiers in an overrides object
+function countActiveModifiers(overrides) {
+  if (!overrides) return 0;
+  let count = 0;
+  if (overrides.heavy) count++;
+  if (overrides.hitMod && overrides.hitMod !== 0) count++;
+  if (overrides.rerollHits && overrides.rerollHits !== 'none') count++;
+  if (overrides.critHitOn && overrides.critHitOn < 6) count++;
+  if (overrides.lance) count++;
+  if (overrides.woundMod && overrides.woundMod !== 0) count++;
+  if (overrides.rerollWounds && overrides.rerollWounds !== 'none') count++;
+  if (overrides.critWoundOn && overrides.critWoundOn < 6) count++;
+  if (overrides.sustainedHits && overrides.sustainedHits > 0) count++;
+  if (overrides.lethalHits) count++;
+  if (overrides.devastatingWounds) count++;
+  if (overrides.ignoresCover) count++;
+  if (overrides.rerollShots && overrides.rerollShots !== 'none') count++;
+  if (overrides.rerollDamage && overrides.rerollDamage !== 'none') count++;
+  return count;
+}
+
+// Army-wide modifiers section
+function ArmyWideModifiers({ armyOverrides, onUpdate, onReset }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const activeCount = countActiveModifiers(armyOverrides);
+
+  return (
+    <div className="mb-4 bg-gradient-to-r from-amber-900/20 to-orange-900/20 border border-amber-700/40 rounded-xl overflow-hidden">
+      {/* Header */}
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-amber-900/10 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
+            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div className="text-left">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-amber-200">Army-Wide Modifiers</span>
+              {activeCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/30 text-amber-300">
+                  {activeCount} active
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-amber-400/60">Applies to ALL weapons in selected units</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {activeCount > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onReset();
+              }}
+              className="px-2 py-1 text-[10px] text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
+            >
+              Clear
+            </button>
+          )}
+          <svg
+            className={`w-4 h-4 text-amber-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+
+      {/* Content */}
+      {isExpanded && (
+        <div className="px-4 pb-4 border-t border-amber-700/30">
+          <div className="pt-3">
+            <SharedModifierPanel
+              overrides={armyOverrides || {}}
+              onChange={onUpdate}
+              color="orange"
+              label="Army"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Main SelectedUnitsEditor component
  */
-function SelectedUnitsEditor({ units, onProfileUpdate, onResetAll }) {
+function SelectedUnitsEditor({
+  units,
+  onProfileUpdate,
+  onResetAll,
+  // Unit overrides
+  unitOverrides,
+  onUnitOverrideUpdate,
+  onUnitOverrideReset,
+  // Army overrides
+  armyOverrides,
+  onArmyOverrideUpdate,
+  onArmyOverrideReset,
+}) {
   const [expandedProfiles, setExpandedProfiles] = useState(new Set());
+  const [expandedUnitMods, setExpandedUnitMods] = useState(new Set());
   const [isCollapsed, setIsCollapsed] = useState(false);
   
   // Toggle profile expansion
@@ -561,11 +1042,28 @@ function SelectedUnitsEditor({ units, onProfileUpdate, onResetAll }) {
       return next;
     });
   };
+
+  // Toggle unit modifiers expansion
+  const toggleUnitMods = (unitId) => {
+    setExpandedUnitMods(prev => {
+      const next = new Set(prev);
+      if (next.has(unitId)) {
+        next.delete(unitId);
+      } else {
+        next.add(unitId);
+      }
+      return next;
+    });
+  };
   
   // Calculate totals
   const totalWeapons = units.reduce((sum, u) => sum + u.profiles.length, 0);
   const activeWeapons = units.reduce((sum, u) => sum + u.profiles.filter(p => p.active !== false).length, 0);
-  const totalModsApplied = units.reduce((sum, u) => {
+
+  // Count modifiers at each level
+  const armyModCount = countActiveModifiers(armyOverrides);
+  const totalUnitMods = Object.values(unitOverrides || {}).reduce((sum, o) => sum + countActiveModifiers(o), 0);
+  const totalWeaponMods = units.reduce((sum, u) => {
     return sum + u.profiles.reduce((pSum, p) => {
       let count = 0;
       if (p.torrent) count++;
@@ -589,6 +1087,7 @@ function SelectedUnitsEditor({ units, onProfileUpdate, onResetAll }) {
       return pSum + count;
     }, 0);
   }, 0);
+  const totalModsApplied = armyModCount + totalUnitMods + totalWeaponMods;
   
   // Track global profile index for coloring
   let globalProfileIndex = 0;
@@ -617,9 +1116,19 @@ function SelectedUnitsEditor({ units, onProfileUpdate, onResetAll }) {
           <span className="px-2 py-0.5 bg-zinc-800 rounded text-xs text-zinc-400">
             {activeWeapons}/{totalWeapons} weapons
           </span>
-          {totalModsApplied > 0 && (
+          {armyModCount > 0 && (
+            <span className="px-2 py-0.5 bg-amber-500/20 rounded text-xs text-amber-400">
+              {armyModCount} army
+            </span>
+          )}
+          {totalUnitMods > 0 && (
+            <span className="px-2 py-0.5 bg-blue-500/20 rounded text-xs text-blue-400">
+              {totalUnitMods} unit
+            </span>
+          )}
+          {totalWeaponMods > 0 && (
             <span className="px-2 py-0.5 bg-orange-500/20 rounded text-xs text-orange-400">
-              {totalModsApplied} modifier{totalModsApplied !== 1 ? 's' : ''} applied
+              {totalWeaponMods} weapon
             </span>
           )}
         </button>
@@ -639,18 +1148,26 @@ function SelectedUnitsEditor({ units, onProfileUpdate, onResetAll }) {
       {/* Help text */}
       {!isCollapsed && (
         <p className="text-xs text-zinc-500 mb-4">
-          Click a weapon card to expand and edit modifiers (rerolls, sustained hits, etc.). 
-          Changes update the damage calculation immediately.
+          Set modifiers at Army, Unit, or Weapon level. Lower levels override higher ones (Weapon {">"} Unit {">"} Army).
         </p>
       )}
-      
+
+      {/* Army-wide modifiers */}
+      {!isCollapsed && (
+        <ArmyWideModifiers
+          armyOverrides={armyOverrides || {}}
+          onUpdate={onArmyOverrideUpdate}
+          onReset={onArmyOverrideReset}
+        />
+      )}
+
       {/* Unit groups */}
       {!isCollapsed && (
         <div className="space-y-4">
           {units.map((unit, unitIndex) => {
             const startIndex = globalProfileIndex;
             globalProfileIndex += unit.profiles.length;
-            
+
             return (
               <UnitGroup
                 key={unit.id}
@@ -660,6 +1177,14 @@ function SelectedUnitsEditor({ units, onProfileUpdate, onResetAll }) {
                 onUpdateProfile={onProfileUpdate}
                 expandedProfiles={expandedProfiles}
                 onToggleExpand={toggleExpand}
+                // Unit-level modifiers
+                unitOverrides={unitOverrides?.[unit.id] || {}}
+                onUnitOverrideUpdate={onUnitOverrideUpdate}
+                onUnitOverrideReset={onUnitOverrideReset}
+                isUnitModsExpanded={expandedUnitMods.has(unit.id)}
+                onToggleUnitMods={() => toggleUnitMods(unit.id)}
+                // Army-level modifiers (for inheritance display)
+                armyOverrides={armyOverrides || {}}
               />
             );
           })}

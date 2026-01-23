@@ -144,53 +144,67 @@ export function findUnit(unitName, wahapediaUnits) {
  * 3. Prefix match (army list "Gork's Klaw" matches wahapedia "Gork's Klaw - strike")
  */
 export function findWeapon(weaponName, wahaUnit) {
+  const matches = findAllWeapons(weaponName, wahaUnit);
+  return matches.length > 0 ? matches[0] : null;
+}
+
+/**
+ * Find ALL weapons matching a name within a unit's weapon list
+ * Returns all matching profiles (e.g., both "strike" and "sweep" for "Gork's Klaw")
+ *
+ * Tries multiple matching strategies:
+ * 1. Exact match after normalization
+ * 2. Plural handling (sluggas -> slugga)
+ * 3. Prefix match (army list "Gork's Klaw" matches "Gork's Klaw - strike" AND "Gork's Klaw - sweep")
+ */
+export function findAllWeapons(weaponName, wahaUnit) {
   if (!wahaUnit?.weapons) {
     log(`  No weapons data for unit`);
-    return null;
+    return [];
   }
-  
+
   const allWeapons = [
     ...(wahaUnit.weapons.ranged || []),
     ...(wahaUnit.weapons.melee || [])
   ];
-  
+
   const normalizedName = normalize(weaponName);
   const normalizedNameNoPlural = normalizeWeapon(weaponName);
-  
+
   log(`  Finding weapon: "${weaponName}" -> normalized: "${normalizedName}" / no-plural: "${normalizedNameNoPlural}"`);
   log(`  Available weapons:`, allWeapons.map(w => `"${w.name}" -> "${normalize(w.name)}"`));
-  
+
   // Strategy 1: Exact match
-  let match = allWeapons.find(w => normalize(w.name) === normalizedName);
-  if (match) {
-    log(`    ✓ Exact match: "${match.name}"`);
-    return match;
+  let matches = allWeapons.filter(w => normalize(w.name) === normalizedName);
+  if (matches.length > 0) {
+    log(`    ✓ Exact match: ${matches.map(m => `"${m.name}"`).join(', ')}`);
+    return matches;
   }
-  
+
   // Strategy 2: Plural handling (twin sluggas -> twin slugga)
-  match = allWeapons.find(w => normalizeWeapon(w.name) === normalizedNameNoPlural);
-  if (match) {
-    log(`    ✓ Plural match: "${match.name}"`);
-    return match;
+  matches = allWeapons.filter(w => normalizeWeapon(w.name) === normalizedNameNoPlural);
+  if (matches.length > 0) {
+    log(`    ✓ Plural match: ${matches.map(m => `"${m.name}"`).join(', ')}`);
+    return matches;
   }
-  
+
   // Strategy 3: Army list name is prefix of wahapedia name
-  // e.g., "Gork's Klaw" matches "Gork's Klaw - strike"
-  match = allWeapons.find(w => normalize(w.name).startsWith(normalizedName));
-  if (match) {
-    log(`    ✓ Prefix match: "${weaponName}" -> "${match.name}"`);
-    return match;
+  // e.g., "Gork's Klaw" matches "Gork's Klaw - strike" AND "Gork's Klaw - sweep"
+  matches = allWeapons.filter(w => normalize(w.name).startsWith(normalizedName));
+  if (matches.length > 0) {
+    log(`    ✓ Prefix match: "${weaponName}" -> ${matches.map(m => `"${m.name}"`).join(', ')}`);
+    return matches;
   }
-  
+
   // Strategy 4: Wahapedia name is prefix of army list name
-  match = allWeapons.find(w => normalizedName.startsWith(normalize(w.name)));
-  if (match) {
-    log(`    ✓ Reverse prefix match: "${weaponName}" -> "${match.name}"`);
-    return match;
+  matches = allWeapons.filter(w => normalizedName.startsWith(normalize(w.name)));
+  if (matches.length > 0) {
+    log(`    ✓ Reverse prefix match: "${weaponName}" -> ${matches.map(m => `"${m.name}"`).join(', ')}`);
+    return matches;
   }
-  
+
   log(`    ✗ No match found for "${weaponName}"`);
-  return null;
+  return [];
 }
 
 /**
@@ -272,25 +286,33 @@ export function mergeArmyWithWahapedia(parsedArmy, wahapediaUnits) {
     
     // Match weapons for each model
     const mergedModels = unit.models.map(model => {
-      const mergedWeapons = model.weapons.map(weapon => {
+      const mergedWeapons = [];
+
+      model.weapons.forEach(weapon => {
         // Count by quantity (e.g., "3x Choppa" = 3 weapons)
         const weaponCount = weapon.count || 1;
         totalWeapons += weaponCount;
-        
-        const wahaWeapon = findWeapon(weapon.name, wahaUnit);
-        
-        if (!wahaWeapon) {
+
+        // Find ALL matching weapon profiles (e.g., both strike and sweep)
+        const wahaWeapons = findAllWeapons(weapon.name, wahaUnit);
+
+        if (wahaWeapons.length === 0) {
           unmatchedItems.push({ type: 'weapon', name: weapon.name, unit: unit.name, count: weaponCount });
-          return {
+          mergedWeapons.push({
             ...weapon,
             _matched: false,
-          };
+          });
+          return;
         }
-        
+
         matchedWeapons += weaponCount;
-        return convertWeaponStats(wahaWeapon, weapon.count);
+
+        // Add ALL matching profiles (e.g., Gork's Klaw - strike AND Gork's Klaw - sweep)
+        wahaWeapons.forEach(wahaWeapon => {
+          mergedWeapons.push(convertWeaponStats(wahaWeapon, weapon.count));
+        });
       });
-      
+
       return {
         ...model,
         weapons: mergedWeapons,

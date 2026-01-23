@@ -70,8 +70,20 @@ function Warhammer40KDamageCalculator() {
         unitsForCalculator={army.unitsForCalculator}
         selectedUnitIds={army.selectedUnitIds}
         armyStats={army.armyStats}
+        // Profile (weapon) overrides
         updateProfileOverride={army.updateProfileOverride}
         resetProfileOverrides={army.resetProfileOverrides}
+        // Unit overrides
+        unitOverrides={army.unitOverrides}
+        updateUnitOverride={army.updateUnitOverride}
+        resetUnitOverride={army.resetUnitOverride}
+        resetUnitOverrides={army.resetUnitOverrides}
+        // Army overrides
+        armyOverrides={army.armyOverrides}
+        updateArmyOverride={army.updateArmyOverride}
+        resetArmyOverrides={army.resetArmyOverrides}
+        // Reset all
+        resetAllOverrides={army.resetAllOverrides}
       />
     </div>
   );
