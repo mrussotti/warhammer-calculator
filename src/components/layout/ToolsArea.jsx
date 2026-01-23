@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import SelectedUnitsEditor from './SelectedUnitsEditor';
 
 /**
  * ToolsArea - Main content area with analysis tools as tabs
@@ -16,6 +17,9 @@ function ToolsArea({
   unitsForCalculator,
   selectedUnitIds,
   armyStats,
+  // Profile override functions
+  updateProfileOverride,
+  resetProfileOverrides,
 }) {
   const [activeTool, setActiveTool] = useState('damage');
   
@@ -57,7 +61,7 @@ function ToolsArea({
   const statusContent = useMemo(() => {
     if (!importedArmy) {
       return {
-        text: 'No army loaded — enter weapons manually or import an army',
+        text: 'No army loaded â€” enter weapons manually or import an army',
         type: 'info',
       };
     }
@@ -71,7 +75,7 @@ function ToolsArea({
     
     const weaponCount = selectedProfiles.length;
     return {
-      text: `${selectedUnitIds.size} unit${selectedUnitIds.size !== 1 ? 's' : ''} selected — ${weaponCount} weapon profile${weaponCount !== 1 ? 's' : ''}`,
+      text: `${selectedUnitIds.size} unit${selectedUnitIds.size !== 1 ? 's' : ''} selected â€” ${weaponCount} weapon profile${weaponCount !== 1 ? 's' : ''}`,
       type: 'success',
     };
   }, [importedArmy, selectedUnitIds, selectedProfiles]);
@@ -126,6 +130,15 @@ function ToolsArea({
       
       {/* Tool Content */}
       <div className="flex-1 overflow-y-auto p-6">
+        {/* Weapon Modifiers Editor - shown when damage tool is active and units are selected */}
+        {activeTool === 'damage' && unitsForCalculator.length > 0 && (
+          <SelectedUnitsEditor
+            units={unitsForCalculator}
+            onProfileUpdate={updateProfileOverride}
+            onResetAll={resetProfileOverrides}
+          />
+        )}
+        
         {activeTool === 'damage' && DamageCalculator && selectedProfiles.length > 0 && (
           <DamageCalculator 
             profiles={selectedProfiles} 

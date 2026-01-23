@@ -70,6 +70,8 @@ function Warhammer40KDamageCalculator() {
         unitsForCalculator={army.unitsForCalculator}
         selectedUnitIds={army.selectedUnitIds}
         armyStats={army.armyStats}
+        updateProfileOverride={army.updateProfileOverride}
+        resetProfileOverrides={army.resetProfileOverrides}
       />
     </div>
   );

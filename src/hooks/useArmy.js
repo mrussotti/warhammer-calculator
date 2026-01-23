@@ -25,6 +25,11 @@ export function useArmy() {
   // Sidebar UI state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
+  // Profile overrides - user-applied modifiers to weapons
+  // Key: profileId (e.g., "0-Beast Snagga Boy-Choppa")
+  // Value: { rerollHits: 'all', sustainedHits: 2, etc. }
+  const [profileOverrides, setProfileOverrides] = useState({});
+  
   // Load Wahapedia data on mount
   useEffect(() => {
     async function loadWahapediaData() {
@@ -151,6 +156,7 @@ export function useArmy() {
   // Transform units to format expected by TargetUnitTab
   // TargetUnitTab expects: unit.profiles[] (flat weapon list with IDs)
   // We have: unit.models[].weapons[] (nested structure)
+  // Also applies user-specified profileOverrides for modifiers
   const unitsForCalculator = useMemo(() => {
     return selectedComposedUnits.map(unit => {
       // Flatten models.weapons into profiles array
@@ -159,9 +165,13 @@ export function useArmy() {
         model.weapons?.forEach(weapon => {
           const modelCount = model.count || 1;
           const weaponCount = weapon.count || 1;
+          const profileId = `${unit.originalIndex}-${model.name}-${weapon.name}`;
+          
+          // Get any user overrides for this profile
+          const overrides = profileOverrides[profileId] || {};
           
           profiles.push({
-            id: `${unit.originalIndex}-${model.name}-${weapon.name}`,
+            id: profileId,
             name: weapon.name,
             attacks: weapon.attacks || '1',
             bs: weapon.bs || 4,
@@ -169,7 +179,7 @@ export function useArmy() {
             ap: weapon.ap || 0,
             damage: weapon.damage || '1',
             modelCount: modelCount * weaponCount,
-            // Weapon abilities
+            // Weapon abilities - base values from parsed data
             torrent: weapon.torrent || false,
             heavy: weapon.heavy || false,
             lethalHits: weapon.lethalHits || false,
@@ -182,7 +192,16 @@ export function useArmy() {
             ignoresCover: weapon.ignoresCover || false,
             blast: weapon.blast || false,
             lance: weapon.lance || false,
+            // Default modifier values
+            hitMod: 0,
+            rerollHits: 'none',
+            critHitOn: 6,
+            woundMod: 0,
+            rerollWounds: 'none',
+            critWoundOn: 6,
             active: true,
+            // Apply user overrides last (they take precedence)
+            ...overrides,
           });
         });
       });
@@ -194,57 +213,19 @@ export function useArmy() {
         profiles,
       };
     });
-  }, [selectedComposedUnits, displayNames]);
+  }, [selectedComposedUnits, displayNames, profileOverrides]);
   
   // Weapon profiles from selected units (for damage calculator)
+  // Now derives from unitsForCalculator to ensure overrides are applied consistently
   const selectedProfiles = useMemo(() => {
-    const profiles = [];
-    
-    selectedComposedUnits.forEach(unit => {
-      unit.models?.forEach(model => {
-        model.weapons?.forEach(weapon => {
-          // Include all weapons - matched ones have full stats, unmatched use defaults
-          // Create profile for each weapon instance (model.count tells us how many models have this weapon)
-          const modelCount = model.count || 1;
-          const weaponCount = weapon.count || 1;
-          
-          profiles.push({
-            id: `${unit.originalIndex}-${model.name}-${weapon.name}`,
-            unitId: unit.originalIndex,
-            unitName: displayNames.get(unit.originalIndex) || unit.name,
-            modelName: model.name,
-            name: weapon.name,
-            attacks: weapon.attacks || '1',
-            bs: weapon.bs || 4,
-            strength: weapon.strength || 4,
-            ap: weapon.ap || 0,
-            damage: weapon.damage || '1',
-            // Model count: total weapons = models using this weapon × weapon count per model
-            modelCount: modelCount * weaponCount,
-            // Weapon abilities
-            torrent: weapon.torrent || false,
-            heavy: weapon.heavy || false,
-            lethalHits: weapon.lethalHits || false,
-            devastatingWounds: weapon.devastatingWounds || false,
-            sustainedHits: weapon.sustainedHits || 0,
-            twinLinked: weapon.twinLinked || false,
-            antiKeyword: weapon.antiKeyword || null,
-            melta: weapon.melta || 0,
-            rapidFire: weapon.rapidFire || 0,
-            ignoresCover: weapon.ignoresCover || false,
-            blast: weapon.blast || false,
-            lance: weapon.lance || false,
-            // Track if this came from Wahapedia match
-            _matched: weapon._matched || false,
-            // Active by default
-            active: true,
-          });
-        });
-      });
-    });
-    
-    return profiles;
-  }, [selectedComposedUnits, displayNames]);
+    return unitsForCalculator
+      .flatMap(unit => unit.profiles.map(profile => ({
+        ...profile,
+        unitId: unit.id,
+        unitName: unit.name,
+      })))
+      .filter(p => p.active !== false);
+  }, [unitsForCalculator]);
   
   // Match statistics
   const matchStats = useMemo(() => {
@@ -275,10 +256,11 @@ export function useArmy() {
   
   const importArmy = useCallback((armyData) => {
     setImportedArmy(armyData);
-    // Reset selection and composition
+    // Reset selection, composition, and profile overrides
     setSelectedUnitIds(new Set());
     setAttachments({});
     setEmbarked({});
+    setProfileOverrides({});
   }, []);
   
   const clearArmy = useCallback(() => {
@@ -286,6 +268,20 @@ export function useArmy() {
     setSelectedUnitIds(new Set());
     setAttachments({});
     setEmbarked({});
+    setProfileOverrides({});
+  }, []);
+  
+  // Update a single profile's modifiers
+  const updateProfileOverride = useCallback((profileId, overrides) => {
+    setProfileOverrides(prev => ({
+      ...prev,
+      [profileId]: { ...(prev[profileId] || {}), ...overrides }
+    }));
+  }, []);
+  
+  // Reset all profile overrides
+  const resetProfileOverrides = useCallback(() => {
+    setProfileOverrides({});
   }, []);
   
   const toggleUnit = useCallback((unitIndex) => {
@@ -366,6 +362,9 @@ export function useArmy() {
     attachments,
     embarked,
     
+    // Profile overrides
+    profileOverrides,
+    
     // Computed
     displayNames,
     matchStats,
@@ -381,6 +380,8 @@ export function useArmy() {
     embarkUnit,
     toggleSidebar,
     getDisplayName,
+    updateProfileOverride,
+    resetProfileOverrides,
   };
 }
 
