@@ -72,7 +72,7 @@ function ToolsArea({
   const statusContent = useMemo(() => {
     if (!importedArmy) {
       return {
-        text: 'No army loaded â€” enter weapons manually or import an army',
+        text: 'No army loaded - enter weapons manually or import an army',
         type: 'info',
       };
     }
@@ -86,7 +86,7 @@ function ToolsArea({
     
     const weaponCount = selectedProfiles.length;
     return {
-      text: `${selectedUnitIds.size} unit${selectedUnitIds.size !== 1 ? 's' : ''} selected â€” ${weaponCount} weapon profile${weaponCount !== 1 ? 's' : ''}`,
+      text: `${selectedUnitIds.size} unit${selectedUnitIds.size !== 1 ? 's' : ''} selected - ${weaponCount} weapon profile${weaponCount !== 1 ? 's' : ''}`,
       type: 'success',
     };
   }, [importedArmy, selectedUnitIds, selectedProfiles]);
